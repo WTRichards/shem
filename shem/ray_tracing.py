@@ -1,5 +1,4 @@
 import numpy as np
-import torch
 import trimesh
 
 def intersects_location(rays, mesh, device, use_torch=False):

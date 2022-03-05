@@ -3,7 +3,6 @@
 import argparse, textwrap
 import os, sys, importlib
 
-import torch
 import tqdm
 
 import shem.configuration
@@ -29,10 +28,14 @@ if __name__ == '__main__':
 
     # Specify a working directory
     parser.add_argument("-w", "--work-dir", help="working directory", default="./")
+    # Specify a device to use - CPU or GPU,
+    parser.add_argument("-d", "--device", help="device target (CPU or GPU)", default="CPU")
     # Can run multiple config files, using the default if none are specified
     parser.add_argument("config", nargs='*', help="config files written in yaml format")
 
     args = parser.parse_args()
+
+    device = args.device
 
     # Check if the working directory is either empty or has a lock file.
     lock_file = os.path.join(args.work_dir, "shem.lock")
@@ -41,24 +44,6 @@ if __name__ == '__main__':
     # Create a lock file if one does not already exist.
     elif not os.path.isfile(lock_file):
         open(lock_file,'a').close()
-
-    if args.list_devices:
-        if torch.cuda.is_available():
-            print("GPU capabilities available:")
-            for dev in torch.cuda.device_count():
-                print(torch.cuda.get_device_name(0))
-                print('    Memory Usage:')
-                print('    Allocated:', round(torch.cuda.memory_allocated(0)/1024**3,1), 'GB')
-                print('    Cached:   ', round(torch.cuda.memory_reserved(0)/1024**3,1), 'GB')
-        else:
-            print("No GPUs detected.")
-            print("Using CPU instead.")
-        sys.exit()
-
-    # Use a GPU if one is available
-    # TODO: Allow multiple gpus to be used in parallel - look into Python multithreading.
-    # Currently it uses the first available GPU.
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     # Use the default configuration if no command line argument is supplied.
     if not args.config:

@@ -1,0 +1,50 @@
+title = "SHeM Ray Tracing Library Example Configuration"
+description = "An example configuration file which showcases the capabilities of the library. See comments for more information."
+
+[simulation]
+npixels = 16
+ppixels = 1
+  
+[simulation.mesh]
+create = true
+inspect = true
+file = "work/mesh/example.glb"
+type = "sphere"
+width = 1
+height = 0.2
+radius = 0.1
+
+# Brute force way
+[simulation.scattering]
+monte_carlo_normalise = true
+
+[simulation.scattering.specular]
+strength = 0
+shininess = 5
+
+[simulation.scattering.diffuse]
+strength = 1
+
+[simulation.scattering.ambient]
+strength = 0
+
+[simulation.scan]
+type = "plane"
+length = 0.5
+
+# Information lost due to thermal expansion. Cyclinder -> Cone
+# Adiabatic expansion - calculate analytically.
+# Angle is negligibly small.
+# Lost information about incoming wavevector.
+# Justify point source physically
+[simulation.source]
+location_polar = [1, +45, 180]
+
+[simulation.source.function]
+delta = 70
+delta_ = 30
+
+[simulation.detector]
+location_polar = [1, +45, 0]
+
+

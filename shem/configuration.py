@@ -1,4 +1,4 @@
-import yaml
+import toml
 import os
 
 import numpy as np
@@ -51,11 +51,10 @@ def run_config(args, config_file, device):
     Executes the provided toml config on the provided device.
     '''
 
-    with open(config_file, 'r') as stream:
-        try:
-            conf = yaml.safe_load(stream)
-        except yaml.YAMLError as exc:
-            print(exc)
+    try:
+        conf = toml.load(config_file)
+    except ValueError:
+        print(config_file + " is not a valid config file")
 
     if not conf is None:
         if args.verbose:
