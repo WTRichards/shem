@@ -13,29 +13,28 @@ import shem.ray_tracing
 import shem.scattering_functions
 import shem.source_functions
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(prog="SHeM", description=textwrap.dedent('''
     A GPU-accelerated SHeM simulations library based on PyTorch.'''), formatter_class=argparse.RawTextHelpFormatter)
 
     # Either verbose or quiet, not both
     verbosity = parser.add_mutually_exclusive_group()
-    verbosity.add_argument("-v", "--verbose",        help="decrease output verbosity", action="store_true")
-    verbosity.add_argument("-q", "--quiet",          help="increase output verbosity", action="store_true")
+    verbosity.add_argument("-v", "--verbose", help="decrease output verbosity", action="store_true")
+    verbosity.add_argument("-q", "--quiet", help="increase output verbosity", action="store_true")
     
     # Run once then exit
-    parser.add_argument("-l", "--list-devices",   help="list available devices",    action="store_true")
+    parser.add_argument("-l", "--list-devices", help="list available devices", action="store_true")
     parser.add_argument('--version', action='version', version='%(prog)s 0.1')
 
     # Specify a working directory
     parser.add_argument("-w", "--work-dir", help="working directory", default="./")
-    # Specify a device to use - CPU or GPU,
-    parser.add_argument("-d", "--device", help="device target (CPU or GPU)", default="CPU")
+    # Use GPU
+    parser.add_argument("-g", "--use-gpu", help="use the gpu where possible", action="store_true")
+    parser.add_argument("-b", "--brute-force", help="trace each ray", action="store_true")
     # Can run multiple config files, using the default if none are specified
     parser.add_argument("config", nargs='*', help="config files written in yaml format")
 
     args = parser.parse_args()
-
-    device = args.device
 
     # Check if the working directory is either empty or has a lock file.
     lock_file = os.path.join(args.work_dir, "shem.lock")
@@ -64,10 +63,14 @@ if __name__ == '__main__':
             config_loop = tqdm.trange(len(args.config))
             for config_file in args.config:
                 config_loop.set_description("Parsing " + config_file)
-                shem.configuration.run_config(args, config_file, device)
+                shem.configuration.run_config(args, config_file)
                 config_loop.update()
             config_loop.close()
         else:
             for config_file in args.config:
-                shem.configuration.run_config(args, config_file, device)
+                shem.configuration.run_config(args, config_file)
 
+
+if __name__ == '__main__':
+    main()
+    

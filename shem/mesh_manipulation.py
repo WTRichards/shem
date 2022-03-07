@@ -110,7 +110,8 @@ def create_sphere_triangles(w, h, r, iterations=3):
                 sphere_triangles[i][vertex_pairs[0]].mean(0),
             ])
 
-        new_sphere_triangles = (new_sphere_triangles.T / np.linalg.norm(new_sphere_triangles.T, axis=0)).T
+        new_sphere_triangles = new_sphere_triangles / np.linalg.norm(new_sphere_triangles, axis=-1).reshape(-1,3,1)
+        # new_sphere_triangles = (new_sphere_triangles.T / np.linalg.norm(new_sphere_triangles.T, axis=0)).T
         return new_sphere_triangles
 
     # Start the tesselation process with an octohedron.

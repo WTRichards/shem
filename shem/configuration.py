@@ -3,17 +3,24 @@ import os
 
 import numpy as np
 import trimesh
+import tqdm
 
+import shem.display
 import shem.geometry
 import shem.mesh_manipulation
+import shem.scattering_functions
 import shem.source_functions
 
 ScanTypes = {'point', 'line', 'plane'}
 MeshTypes  = {'flat', 'sphere', 'rough'}
 SourceFunctions = {
         'delta': shem.source_functions.delta,
-        'delta_': shem.source_functions.delta_,
-        }
+        'uniform_cone': shem.source_functions.uniform_cone,
+}
+ScatteringFunctions = {
+        'specular': shem.scattering_functions.specular,
+        'diffuse': shem.scattering_functions.diffuse,
+}
 
 # TODO: Implement the ability to create a default configuration file.
 # TODO: Setup Cerberus input validator.
@@ -46,7 +53,7 @@ def reshape_rays(rays, ppixels, npixels, dims=2, flatten=True):
     '''
     return
 
-def run_config(args, config_file, device):
+def run_config(args, config_file):
     '''
     Executes the provided toml config on the provided device.
     '''
@@ -68,6 +75,7 @@ def run_config(args, config_file, device):
             print("  Applying simulation configuration...")
         npixels  = get_conf_val(sim, 'npixels')
         ppixels  = get_conf_val(sim, 'ppixels', 'rays_per_pixel', 'raysperpixel')
+        dpixels  = get_conf_val(sim, 'dpixels')
         mesh     = get_conf_val(sim, 'mesh')
         scat     = get_conf_val(sim, 'scattering', 'scat')
         scan     = get_conf_val(sim, 'scan', 'scanning')
@@ -85,25 +93,23 @@ def run_config(args, config_file, device):
         height       = get_conf_val(mesh, 'height')
         radius       = get_conf_val(mesh, 'radius')
 
+    # Need a dictionary indexed by functions with kwargs keys.
     if not scat is None:
         if args.verbose:
             print("    Applying scattering distribution configuration...")
-        specular = get_conf_val(scat, 'specular', 'spec')
-        if not specular is None:
-            k_s       = get_conf_val(specular, 'strength', 'k')
-            shininess = get_conf_val(specular, 'shininess')
-        diffuse = get_conf_val(scat, 'Lambertian', 'Lambert', 'diffuse', 'cosine')
-        if not diffuse is None:
-            k_d = get_conf_val(diffuse, 'strength', 'k')
-        ambient  = get_conf_val(scat, 'ambient')
-        if not ambient is None:
-            k_a = get_conf_val(ambient, 'strength', 'k')
+        scat_normalise = get_conf_val(scat, 'normalise', 'monte_carlo_normalise')
+        brute_force = get_conf_val(scat, 'brute_force')
+        scattering_function_ = get_conf_val(scat, 'function')
+        # Convert strings representing the source functions to the source functions themselves.
+        if not scattering_function_ is None:
+            scattering_function  = dict(zip((ScatteringFunctions[key] for key in scattering_function_.keys()), scattering_function_.values()))
 
     if not scan is None:
         if args.verbose:
             print("    Applying scan configuration...")
         scan_type   = get_conf_val(scan, 'scan_type', 'type')
         scan_length = get_conf_val(scan, 'scan_length', 'length')
+        inspect_scan = get_conf_val(scan, 'inspect', 'inspect_model', 'inspect_scan')
 
     if not source is None:
         if args.verbose:
@@ -113,9 +119,11 @@ def run_config(args, config_file, device):
         # Default to using Cartesian coordinates
         if source_location is None:
             source_location = shem.geometry.polar2cart(source_location_polar, radians=False)
+        source_normalise = get_conf_val(source, 'normalise', 'monte_carlo_normalise')
+        source_radius = get_conf_val(source, 'source_radius', 'radius')
         source_function_ = get_conf_val(source, 'function')
-        # Convert strings representing the source functions to the source functions themselves.
-        source_function  = dict(zip((SourceFunctions[key] for key in source_function_.keys()), source_function_.values()))
+        if not source_function_ is None:
+            source_function  = dict(zip((SourceFunctions[key] for key in source_function_.keys()), source_function_.values()))
 
     if not detector is None:
         if args.verbose:
@@ -125,7 +133,8 @@ def run_config(args, config_file, device):
         # Default to using Cartesian coordinates
         if detector_location is None:
             detector_location = shem.geometry.polar2cart(detector_location_polar, radians=False)
-    
+        detector_radius = get_conf_val(detector, 'detector_radius', 'radius')
+   
     # Create the mesh using config options.
     if create_mesh:
         if args.verbose:
@@ -147,13 +156,10 @@ def run_config(args, config_file, device):
 
         # Inspect the mesh before using it.
         if inspect_mesh and not args.quiet:
-            print("Displaying mesh...")
-            # Exit the program if the mesh is not satisfactory.
-            if not shem.mesh_manipulation.inspect_mesh(mesh):
-                print("Mesh inspection failed. Exiting...")
-                sys.exit()
-            else:
-                print("Mesh inspection complete.")
+            print("Displaying mesh, source and detector...")
+            scene = trimesh.scene.scene.Scene(mesh)
+            scene.show()
+            print("Mesh inspection complete.")
 
         # Create any directories required for the mesh file.
         mesh_directory = os.path.split(mesh_file)[0]
@@ -170,72 +176,123 @@ def run_config(args, config_file, device):
                 print("Saving to " + mesh_file + "...")
         shem.mesh_manipulation.save_mesh(mesh, mesh_file)
 
-    # Source Direction
-    theta = shem.geometry.cart2polar(source_location)[1]
-    phi   = shem.geometry.cart2polar(source_location)[2]
-    
     if args.verbose:
         print("Imaging a " + scan_type + "...")
 
-    # Perform the scan simulation
+    # Define the parameters of the scan.
     if scan_type == 'point':
-        rays_ = np.stack((
-            -shem.source_functions.superposition(ppixels, source_function, theta, phi).reshape((ppixels, 3)),
-            np.full((ppixels, 3), source_location),
-        ))
-        displacement = np.zeros(3)
-        rays_[1] += np.tile(displacement, [ppixels, 1]).transpose([0,1])
-        detector_location_ = np.tile(displacement, [ppixels, 1]).transpose([0,1]) + detector_location
+        x_dim, y_dim = 1, 1
+        x = np.array([0.0])
+        y = np.array([0.0])
 
     elif scan_type == 'line':
-        rays_ = np.stack((
-            -shem.source_functions.superposition(npixels*ppixels, source_function, theta, phi).reshape((npixels, ppixels, 3)),
-            np.full((npixels, ppixels, 3), source_location),
-        ))
-        displacement = np.empty((npixels, 3))
-        x = np.linspace(-scan_length/2, +scan_length/2, npixels)
-        displacement[:, 0] = x
-        displacement[:, 1] = 0
-        displacement[:, 2] = 0
-        rays_[1] += np.tile(displacement, [ppixels, 1, 1]).transpose([1,0,2])
-        detector_location_ = np.tile(displacement, [ppixels, 1, 1]).transpose([1,0,2]) + detector_location
+        x_dim, y_dim = npixels, 1
+        x = np.linspace(-scan_length/2, +scan_length/2, x_dim)
+        y = np.array([0.0])
 
     elif scan_type == 'plane':
-        # Create an the array of rays_ we will be tracing
-        rays_ = np.stack((
-            # This is negative because the detector's position vector points away from the sample.
-            -shem.source_functions.superposition(npixels*npixels*ppixels, source_function, theta, phi).reshape((npixels, npixels, ppixels, 3)),
-            np.full((npixels, npixels, ppixels, 3), source_location),
-        ))
-        displacement = np.empty((npixels, npixels, 3))
-        # Create this using meshgrid
-        x_ = np.linspace(-scan_length/2, +scan_length/2, npixels)
-        x, y = np.meshgrid(x_, x_, sparse=True)
-        displacement[:, :, 0] = x
-        displacement[:, :, 1] = y
-        displacement[:, :, 2] = 0
-        # Tile and transpose so that everything adds up.
-        rays_[1] += np.tile(displacement, [ppixels, 1, 1, 1]).transpose([1,2,0,3])
-        detector_location_ = np.tile(displacement, [ppixels, 1, 1, 1]).transpose([1,2,0,3]) + detector_location
+        x_dim, y_dim = npixels, npixels
+        x = np.linspace(-scan_length/2, +scan_length/2, x_dim)
+        y = np.linspace(-scan_length/2, +scan_length/2, y_dim)
 
-    # Linearise the rays vector for efficiency's sake.
-    rays = rays_.reshape(2, -1, 3)
-    hits, rays_i, tris_i = shem.ray_tracing.intersects_location(rays, mesh, device, use_torch=False)
-    trimesh.points.plot_points(hits)
+    else:
+        raise ValueError("Invalid scan_type: " + scan_type)
 
-    # Vector from collision point to detector.
-    hits_to_detector = detector_location_.reshape(-1,3)[rays_i] - hits
-    hits_to_detector/= np.broadcast_to(np.linalg.norm(hits_to_detector, axis=-1), (3,hits_to_detector.shape[0])).T
-    # Need to fudge this so that the ray does not collide with the triangle it just hit.
-    dz = 0.00001
-    rays_s = np.array([hits_to_detector, hits + np.array([0, 0, dz])])
+    # Source Direction
+    theta = shem.geometry.cart2polar(source_location, radians=True)[1]
+    phi   = shem.geometry.cart2polar(source_location, radians=True)[2]
+    
+    # Create the initial set of rays.
+    rays_ = np.stack((
+        shem.source_functions.superposition(x_dim*y_dim*ppixels, source_function, theta, phi).reshape((x_dim, y_dim, ppixels, 3)),
+        np.full((x_dim, y_dim, ppixels, 3), source_location),
+    ))
 
-    # Collision with the mesh before the detector.
-    hits_s, rays_i_s_, tris_i_s = shem.ray_tracing.intersects_location(rays_s, mesh, device, use_torch=False)
+    # Create the displacement vectors corresponding to the scan.
+    displacement_ = np.empty((x_dim, y_dim, 3))
+    yv, xv = np.meshgrid(x, y, sparse=True)
+    displacement_[:, :, 0] = xv
+    displacement_[:, :, 1] = yv
+    displacement_[:, :, 2] = 0
 
-    # Detected rays not scattered off other surfaces
-    rays_i_s = np.delete(rays_i, rays_i_s_)
+    pixels = np.zeros((x_dim, y_dim), dtype=np.float32)
 
-    print(rays_i.shape, rays_i_s.shape, rays_i_s)
+    # Inspect the mesh before using it.
+    if inspect_scan and not args.quiet:
+        print("Displaying intended scanning procedure...")
+        scene = trimesh.scene.scene.Scene(mesh)
+        scene.add_geometry(trimesh.points.PointCloud(source_location - displacement_.reshape(-1,3)))
+        scene.add_geometry(trimesh.points.PointCloud(detector_location - displacement_.reshape(-1,3)))
+        # Plot the rays
+        for t in np.linspace(0,1,11):
+            scene.add_geometry(trimesh.points.PointCloud((rays_[0]*t + rays_[1] - displacement_.reshape(x_dim, y_dim, 1, 3)).reshape(-1,3)))
+        scene.show()
+        print("Model inspection complete.")
+
+    
+    index_loop = tqdm.trange(x_dim*y_dim)
+    # Enumerate over the scanning displacement.
+    for index in np.ndindex(x_dim, y_dim):
+        i = index[0]
+        j = index[1]
+        # Apply the displacement vectors to the rays and detector location.
+        rays = rays_[:, i, j, :, :]
+        displacement = displacement_[index]
+        rays[1] -= displacement
+        source_loc = source_location - displacement
+        # Sample multiple points within the detector radius.
+        if dpixels == 0:
+            detector_loc = (detector_location - displacement).reshape(1,-1)
+        else:
+            detector_loc = detector_location - displacement + detector_radius*shem.geometry.polar2cart(np.array([
+                np.ones(dpixels),
+                2*np.pi*np.random.rand(dpixels),
+                np.pi*np.random.rand(dpixels),
+            ]).T)
+
+        # Calculate the hit location, the corresponding ray and the corresponding triangle of each hit.
+        hits, rays_i, tris_i = shem.ray_tracing.intersects_location(rays, mesh, args.use_gpu)
+        if rays_i.size != 0:
+            for det_loc in detector_loc:
+                # Calculate the vector from the hit location to the detector and normalise.
+                V_ = det_loc - hits
+                V_/= np.linalg.norm(V_, axis=-1).reshape(-1,1)
+            
+                # Vector from collision point to detector.
+                # Need to fudge this so that the ray does not collide with the triangle it just hit.
+                # This is done by adding a small amount times the normal vector.
+                # We can't use the smallest possible float since this is multiplied element-wise, so would just become zero.
+                delta = 0.0001
+                rays_s = np.array([V_, hits + delta*mesh.face_normals[tris_i]])
+            
+                # Rays which collide with the mesh before the detector.
+                collisions = shem.ray_tracing.intersects_any(rays_s, mesh, args.use_gpu)
+                hits_detected = hits[np.logical_not(collisions)]
+                rays_i_detected = rays_i[np.logical_not(collisions)]
+                tris_i_detected = tris_i[np.logical_not(collisions)]
+            
+                # Check if any rays are detected.
+                if collisions.size != 0:
+                    # Vector to detector.
+                    V = det_loc - hits_detected
+                    V/= np.linalg.norm(V, axis=-1).reshape(-1,1)
+                    # Vector to source.
+                    L = source_loc - hits_detected
+                    L/= np.linalg.norm(L, axis=-1).reshape(-1,1)
+                    # Normals of each triangle.
+                    N = mesh.face_normals[tris_i_detected]
+                    N/= np.linalg.norm(N, axis=-1).reshape(-1,1)
+                    # Reflected vectors.
+                    R = L - 2*N*(L*N).sum(-1).reshape(-1,1)
+    
+                    # Calculation of pixel value based on scattering
+                    pixels[index] += shem.scattering_functions.superposition(scattering_function, -L, N, R, -V)
+        index_loop.update()
+    index_loop.close()
+    if dpixels != 0:
+        pixels /= dpixels
+    
+    print(pixels.max())
+    shem.display.show_image(pixels)
     
     return
