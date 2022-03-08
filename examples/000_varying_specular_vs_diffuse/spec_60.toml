@@ -1,0 +1,61 @@
+title = "SHeM Ray Tracing Library Example Configuration"
+description = "An example configuration file which showcases the capabilities of the library. See comments for more information."
+
+[simulation]
+npixels = 256
+# Extrude multiple rays from the source.
+ppixels = 8
+# Sample multiple points within the detector.
+dpixels = 8
+  
+[simulation.mesh]
+create = true
+inspect = false
+file = "work/mesh/example.glb"
+type = "sphere"
+width = 1
+height = 0.2
+radius = 0.1
+
+[simulation.scattering]
+monte_carlo_normalise = true
+brute_force = false
+
+[simulation.scattering.function]
+
+[simulation.scattering.function.specular]
+strength = 60
+shininess = 5
+[simulation.scattering.function.diffuse]
+strength = 40
+
+[simulation.scan]
+type = "plane"
+length = 0.8
+inspect = true
+
+# Information lost due to thermal expansion. Cyclinder -> Cone
+# Adiabatic expansion - calculate analytically.
+# Angle is negligibly small.
+# Lost information about incoming wavevector.
+# Justify point source physically
+[simulation.source]
+monte_carlo_normalise = true
+radius = 0.1
+location_polar = [1, 180, 45]
+
+[simulation.source.function]
+
+[simulation.source.function.delta]
+strength = 10
+[simulation.source.function.uniform_cone]
+strength = 90
+delta_theta = 0.01
+delta_phi = 0.01
+
+
+[simulation.detector]
+radius = 0.1
+location_polar = [1, 0, 45]
+
+

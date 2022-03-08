@@ -1,6 +1,8 @@
 # Project
 result
 work
+*.png
+*.lock
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

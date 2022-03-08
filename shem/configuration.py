@@ -214,6 +214,8 @@ def run_config(args, config_file):
     displacement_[:, :, 0] = xv
     displacement_[:, :, 1] = yv
     displacement_[:, :, 2] = 0
+    # Adjust based on the center of mass of the mesh.
+    displacement_ += mesh.center_mass
 
     pixels = np.zeros((x_dim, y_dim), dtype=np.float32)
 
@@ -231,6 +233,7 @@ def run_config(args, config_file):
 
     
     index_loop = tqdm.trange(x_dim*y_dim)
+    index_loop.set_description("Running " + config_file)
     # Enumerate over the scanning displacement.
     for index in np.ndindex(x_dim, y_dim):
         i = index[0]
@@ -286,13 +289,12 @@ def run_config(args, config_file):
                     R = L - 2*N*(L*N).sum(-1).reshape(-1,1)
     
                     # Calculation of pixel value based on scattering
-                    pixels[index] += shem.scattering_functions.superposition(scattering_function, -L, N, R, -V)
+                    pixels[index] += shem.scattering_functions.superposition(scattering_function, L, N, -R, V)
         index_loop.update()
     index_loop.close()
     if dpixels != 0:
         pixels /= dpixels
     
-    print(pixels.max())
-    shem.display.show_image(pixels)
+    shem.display.save_image(pixels, config_file+'.png')
     
     return

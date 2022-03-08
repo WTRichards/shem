@@ -1,11 +1,7 @@
 import trimesh as tri
 import seaborn as sns
 import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
 import numpy as np
-
-plt.rcParams["figure.figsize"] = [7.50, 3.50]
-plt.rcParams["figure.autolayout"] = True
 
 def show_image(img, title=""):
     # img /= np.max(img)
@@ -19,3 +15,6 @@ def show_image(img, title=""):
     return
 
 
+def save_image(img, file_name=""):
+    plt.imsave(file_name, img, cmap='gray')
+    return
