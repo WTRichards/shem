@@ -1,20 +1,20 @@
 title = "SHeM Ray Tracing Library Example Configuration"
 description = "An example configuration file which showcases the capabilities of the library. See comments for more information."
-npixels = 512
+npixels = 128
 # How many rays to be traced in parallel for each pixel. Lower this if Python screams about memory requirements.
-nparallel = 1
+nparallel = 2
 # How many segments to split the simulation into on the GPU. Raise this if Python screams about memory requirements.
-blocks = 4
+blocks = 32
 # How many times to repeat the same ray-tracing simulation
-passes = 512
+passes = 2
 
 [scattering]
 n = 5
 
 [scattering.specular]
-strength = 10
+strength = 80
 [scattering.diffuse]
-strength = 90
+strength = 20
 
 [scan]
 x_axis = 'x'
@@ -42,9 +42,9 @@ radius = 0.1
 location = [-1.0, 0.0, 1.0]
 
 [source.function.delta]
-strength = 20
+strength = 10
 [source.function.uniform_cone]
-strength = 80
+strength = 90
 delta_theta = 0.1
 delta_phi = 0.1
 
@@ -53,6 +53,6 @@ delta_phi = 0.1
 [detector]
 
 [detector.one]
-radius = 0.1
-location = [1.00, 0.00, 1.02]
+radius = 0.05
+location = [1.00, 0.00, 1.00]
 

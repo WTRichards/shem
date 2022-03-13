@@ -4,14 +4,14 @@ import shem.geometry
 import shem.ray
 from   shem.definitions import *
 
-def specular(r, s, N, d, d_r, displacement):
-    return function(r, s, N, d, d_r, displacement, shem.ray.reflect)
+def specular(r, s, N, d, d_r, displacement, method='matrix'):
+    return function(r, s, N, d, d_r, displacement, shem.ray.reflect, method=method)
 
 # TODO: Get a function to output a random surface vector
-def diffuse(r, s, N, d, d_r, displacement):
-    return function(r, s, N, d, d_r, displacement, shem.ray.diffuse)
+def diffuse(r, s, N, d, d_r, displacement, method='matrix'):
+    return function(r, s, N, d, d_r, displacement, shem.ray.diffuse, method=method)
 
-def function(r, s, N, d, d_r, displacement, scattering_function):
+def function(r, s, N, d, d_r, displacement, scattering_function, method='matrix'):
     xp = cp.get_array_module(r,s,d,d_r)
     
     # Surface normals
@@ -34,8 +34,6 @@ def function(r, s, N, d, d_r, displacement, scattering_function):
 
     # Initialise output tensor.
     out = xp.zeros((d_dim, x_dim, y_dim))
-
-
     
     # Rename the variables of interest to match the loop and reshape for convenience.
     secondary_rays = r.reshape(2,-1,3)
@@ -47,7 +45,7 @@ def function(r, s, N, d, d_r, displacement, scattering_function):
     for i in range(N+1):
         # Detect which faces the rays collide with.
         # We need to keep track of which ray is which, so return indices.
-        t, scattered_rays_indices, scattered_faces_indices = shem.ray.detect_collisions(secondary_rays, s)
+        t, scattered_rays_indices, scattered_faces_indices = shem.ray.detect_collisions(secondary_rays, s, method=method)
 
         # Determine the rays which did not collide with the surface.
         # If we were strictly using NumPy we could use np.delete.
@@ -59,7 +57,6 @@ def function(r, s, N, d, d_r, displacement, scattering_function):
         scattered_rays_indices_original = scattered_rays_indices_original[scattered_rays_indices]
     
         # Detect whether they enter a detector.
-        # TODO: Implement detection functionality
         out += shem.ray.detected(
                 secondary_rays[:, not_scattered, :],
                 not_scattered_rays_indices_original,

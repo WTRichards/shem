@@ -29,7 +29,7 @@ def mesh(args):
     
     # Create a mesh with a sphere on the surface.
     elif args.type == 'sphere':
-        triangles = shem.mesh.create_sphere_triangles(args.width, args.height, args.radius)
+        triangles = shem.mesh.create_sphere_triangles(args.width, args.height, args.radius, iterations=args.iterations)
     
     # Create a mesh with a rough, randomly generated surface.
     # TODO: Implement rough surface generation.
@@ -147,9 +147,11 @@ def main():
     
     # Simulation subparser
     parser_sim = subparsers.add_parser('simulation', aliases=['sim'], help='simulation running subcommand')
-    parser_sim.add_argument('--version', action='version', version='%(prog)s 0.2')
+    parser_sim.add_argument('--version', action='version', version='%(prog)s 1.0')
     # Run once then exit
     parser_sim.add_argument("-l", "--list-devices", help="list available devices", action="store_true")
+    # Use index-based collision detection method.
+    parser_sim.add_argument("-I", "--index-method", help="use an index-based ray-surface collision detection method", action="store_true")
     # Use GPU
     parser_sim.add_argument("-g", "--use-gpu", help="use the gpu", action="store_true")
     # Specify a working directory
@@ -169,6 +171,7 @@ def main():
     parser_mesh.add_argument("-W", "--width",  help="width parameter for meshes", type=float, default=1.0)
     parser_mesh.add_argument("-H", "--height", help="height parameter for meshes", type=float, default=0.2)
     parser_mesh.add_argument("-R", "--radius", help="radius parameter for spherical meshes", type=float, default=0.1)
+    parser_mesh.add_argument("-I", "--iterations", help="iterations parameter for smoothing meshes", type=float, default=4)
     # Mesh type
     parser_mesh.add_argument("-t", "--type", help="mesh type", default="flat")
     # Mesh output file

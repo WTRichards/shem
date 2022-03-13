@@ -53,7 +53,11 @@ def run_config(args, surface, config_file):
     detectors_radius = xp.array(detector_radii, dtype=xp.float32)
     detectors_dim    = detectors_radius.size
 
-    
+    if args.index_method:
+        detection_method = 'index'
+    else:
+        detection_method = 'matrix'
+
     # Define the parameters of the scan.
     # TODO: Enable scans over arbitrary combinations of variables.
     x_dim, y_dim, theta_dim, phi_dim = 1, 1, 1, 1
@@ -109,8 +113,8 @@ def run_config(args, surface, config_file):
             np.seterr(all="ignore")
             # Since the system is linear, we can calculate the effect of each scattering distribution separately and sum, weighted by their respective strengths.
             rays = shem.source.superposition(rays, displacement, source, source_radius, conf.source.function)
-            scan_data[:, d*block_size:(d+1)*block_size, :] += conf.scattering.diffuse.strength  * shem.scattering.diffuse( rays, surface, conf.scattering.n, detectors, detectors_radius, displacement)
-            scan_data[:, d*block_size:(d+1)*block_size, :] += conf.scattering.specular.strength * shem.scattering.specular(rays, surface, conf.scattering.n, detectors, detectors_radius, displacement)
+            scan_data[:, d*block_size:(d+1)*block_size, :] += conf.scattering.diffuse.strength  * shem.scattering.diffuse( rays, surface, conf.scattering.n, detectors, detectors_radius, displacement, method=detection_method)
+            scan_data[:, d*block_size:(d+1)*block_size, :] += conf.scattering.specular.strength * shem.scattering.specular(rays, surface, conf.scattering.n, detectors, detectors_radius, displacement, method=detection_method)
             scan_loop.update()
     scan_loop.close()
 
