@@ -1,61 +1,58 @@
 title = "SHeM Ray Tracing Library Example Configuration"
 description = "An example configuration file which showcases the capabilities of the library. See comments for more information."
+npixels = 512
+# How many rays to be traced in parallel for each pixel. Lower this if Python screams about memory requirements.
+nparallel = 1
+# How many segments to split the simulation into on the GPU. Raise this if Python screams about memory requirements.
+blocks = 4
+# How many times to repeat the same ray-tracing simulation
+passes = 512
 
-[simulation]
-npixels = 256
-# Extrude multiple rays from the source.
-ppixels = 16
-# Sample multiple points within the detector.
-dpixels = 16
-  
-[simulation.mesh]
-create = true
-inspect = false
-file = "work/mesh/example.glb"
-type = "sphere"
-width = 1
-height = 0.2
-radius = 0.1
+[scattering]
+n = 5
 
-[simulation.scattering]
-monte_carlo_normalise = true
-brute_force = false
+[scattering.specular]
+strength = 10
+[scattering.diffuse]
+strength = 90
 
-[simulation.scattering.function]
+[scan]
+x_axis = 'x'
+y_axis = 'y'
+x_shift = 0.00
+y_shift = 0.00
+z_shift = 0.00
 
-[simulation.scattering.function.specular]
-strength = 80
-shininess = 5
-[simulation.scattering.function.diffuse]
-strength = 20
-
-[simulation.scan]
-type = "plane"
-length = 0.8
-inspect = true
+[scan.x]
+range = 0.8
+[scan.y]
+range = 0.8
+[scan.theta]
+range = 0.0
+[scan.phi]
+range = 0.0
 
 # Information lost due to thermal expansion. Cyclinder -> Cone
 # Adiabatic expansion - calculate analytically.
 # Angle is negligibly small.
 # Lost information about incoming wavevector.
 # Justify point source physically
-[simulation.source]
-monte_carlo_normalise = true
+[source]
 radius = 0.1
-location_polar = [1, 180, 45]
+location = [-1.0, 0.0, 1.0]
 
-[simulation.source.function]
-
-[simulation.source.function.delta]
-strength = 10
-[simulation.source.function.uniform_cone]
-strength = 90
-delta_theta = 0.01
-delta_phi = 0.01
+[source.function.delta]
+strength = 20
+[source.function.uniform_cone]
+strength = 80
+delta_theta = 0.1
+delta_phi = 0.1
 
 
-[simulation.detector]
+# Can define multiple detectors
+[detector]
+
+[detector.one]
 radius = 0.1
-location_polar = [1, 0, 45]
-
+location = [1.00, 0.00, 1.02]
 

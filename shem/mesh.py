@@ -1,6 +1,9 @@
+# Do this all on the CPU
 import numpy as np
 import trimesh
 import os, sys
+
+from shem.definitions import *
 
 # Vertices of a slab with the top surface in the (x,y,0) plane.
 PLATFORM_VERTICES = np.array([
@@ -28,14 +31,8 @@ PLATFORM_FACES = np.array([
     [2, 6, 7],
     [0, 1, 5],
     [0, 5, 4],
-])
+], dtype=np.int)
 
-def save_mesh(mesh, path):
-    '''
-    Accepts a mesh and path, then saves the mesh at the given path.
-    '''
-    mesh.export(path, file_type='glb')
-    return
 
 # TODO: Allow the user to halt the program if the mesh is inadequate.
 def inspect_mesh(mesh):
