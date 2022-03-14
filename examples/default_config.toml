@@ -1,20 +1,25 @@
 title = "SHeM Ray Tracing Library Example Configuration"
 description = "An example configuration file which showcases the capabilities of the library. See comments for more information."
-npixels = 128
-# How many rays to be traced in parallel for each pixel. Lower this if Python screams about memory requirements.
-nparallel = 2
+# These settings are the best for me on my setup. You will probably need to tweak them.
+npixels = 512
+# How many rays to be traced in parallel for each pixel. Lower this if Python screams about memory requirements. I have it at 17 because it is the largest amount I can squeeze into my GPU's memory
+nparallel = 1
 # How many segments to split the simulation into on the GPU. Raise this if Python screams about memory requirements.
 blocks = 32
 # How many times to repeat the same ray-tracing simulation
-passes = 2
+passes = 512
 
 [scattering]
 n = 5
 
+# Specular reflection is not necessarily perfect.
+# In this case it is modelled as a cone.
 [scattering.specular]
-strength = 80
+strength = 50.0
+width    = 0.05
+# Diffuse scattering is comple
 [scattering.diffuse]
-strength = 20
+strength = 50.0
 
 [scan]
 x_axis = 'x'
@@ -24,9 +29,9 @@ y_shift = 0.00
 z_shift = 0.00
 
 [scan.x]
-range = 0.8
+range = 0.6
 [scan.y]
-range = 0.8
+range = 0.6
 [scan.theta]
 range = 0.0
 [scan.phi]
@@ -38,21 +43,43 @@ range = 0.0
 # Lost information about incoming wavevector.
 # Justify point source physically
 [source]
-radius = 0.1
-location = [-1.0, 0.0, 1.0]
+radius   = 0.1
+location = [1.0, 180.0, 45.0]
+polar = true
 
 [source.function.delta]
-strength = 10
+strength    = 10
 [source.function.uniform_cone]
-strength = 90
-delta_theta = 0.1
-delta_phi = 0.1
+strength    = 90
+delta_theta = 0.05
+delta_phi   = 0.05
 
 
 # Can define multiple detectors
 [detector]
 
-[detector.one]
-radius = 0.05
-location = [1.00, 0.00, 1.00]
+[detector.m4r]
+radius   = 0.0001
+location = [1.0, 0.0, 45.0]
+polar    = true
+
+[detector.m3r]
+radius   = 0.001
+location = [1.0, 0.0, 45.0]
+polar    = true
+
+[detector.m2r]
+radius   = 0.01
+location = [1.0, 0.0, 45.0]
+polar    = true
+
+[detector.m1r]
+radius   = 0.1
+location = [1.0, 0.0, 45.0]
+polar    = true
+
+[detector.0r]
+radius   = 1.0
+location = [1.0, 0.0, 45.0]
+polar    = true
 

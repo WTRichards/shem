@@ -171,7 +171,7 @@ def main():
     parser_mesh.add_argument("-W", "--width",  help="width parameter for meshes", type=float, default=1.0)
     parser_mesh.add_argument("-H", "--height", help="height parameter for meshes", type=float, default=0.2)
     parser_mesh.add_argument("-R", "--radius", help="radius parameter for spherical meshes", type=float, default=0.1)
-    parser_mesh.add_argument("-I", "--iterations", help="iterations parameter for smoothing meshes", type=float, default=4)
+    parser_mesh.add_argument("-I", "--iterations", help="iterations parameter for smoothing meshes", type=int, default=4)
     # Mesh type
     parser_mesh.add_argument("-t", "--type", help="mesh type", default="flat")
     # Mesh output file

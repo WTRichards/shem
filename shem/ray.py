@@ -23,10 +23,18 @@ def reflect(a, n):
     xp = cp.get_array_module(a, n)
     return a - 2*xp.expand_dims(dot(n, a), -1)*n
 
-def diffuse(a, n):
+# Specular reflection is a cone - not quite perfect.
+def specular(conf, a, n):
     xp = cp.get_array_module(a, n)
+    perfect = reflect(a, n)
+    deviation = xp.ones_like(a)
+    deviation[:, 1:] = conf.specular.width*(xp.random.rand(a.shape[0], 2) - 0.5)
+    return shem.geometry.polar2cart(shem.geometry.cart2polar(perfect) + deviation)
+
+def diffuse(n):
+    xp = cp.get_array_module(n)
     # Generate random directions
-    directions = xp.random.rand(a.shape[0], 2)
+    directions = xp.random.rand(n.shape[0], 2)
     directions[:, 0] *= 2*xp.pi
     directions[:, 1] *= xp.pi/2
     return shem.geometry.rotate_vector(shem.geometry.unit_vector(directions), n)
@@ -101,12 +109,16 @@ def detect_collisions_matrix_method(r, s):
     # The rays intersect at time greater than zero.
     time_matches = xp.squeeze(t_ > 0, -1)
     # The ray hits the 'outside' of the surface instead of the inside.
-    normal_matches = xp.squeeze(dot(n_, a_) < 0, -1)
+    # normal_matches = xp.squeeze(dot(n_, a_) < 0, -1)
     # The ray is within the three edges of the triangle, defined using the sign of the dot product.
     within_edges = (dot(n_, cross(e_, p_ - v_)) > 0).prod(axis=-1, dtype=xp.bool)
+    del p_
 
     # The matrix of truth values for which all conditions above are satisfied.
-    collisions_matrix = within_edges * time_matches * normal_matches
+    collisions_matrix = within_edges * time_matches # * normal_matches
+    del within_edges
+    del time_matches
+    # del normal_matches
 
     # Determine which rays result in collisions.
     first_collisions_rays_indices  = xp.logical_not(xp.logical_not(collisions_matrix).prod(axis=-1, dtype=xp.bool)).nonzero()[0]

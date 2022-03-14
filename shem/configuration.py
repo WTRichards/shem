@@ -41,17 +41,24 @@ def run_config(args, surface, config_file):
     detector_radii = []
     for detector, parameters in conf.detector.items():
         detector_names.append(detector)
-        detector_locations.append(parameters.location)
+        if parameters.polar is True:
+            detector_locations.append(shem.geometry.polar2cart(xp.array(parameters.location), radians=False))
+        else:
+            detector_locations.append(xp.array(parameters.location))
+
         detector_radii.append(parameters.radius)
-
-    # Single source direction
-    source        = xp.array(conf.source.location)
-    source_radius = conf.source.radius
-
+    
     # Multiple detector directions
     detectors        = xp.array(detector_locations)
     detectors_radius = xp.array(detector_radii, dtype=xp.float32)
-    detectors_dim    = detectors_radius.size
+    d_dim            = detectors_radius.size
+
+    # Single source direction
+    source = xp.array(conf.source.location)
+    if conf.source.polar is True:
+        source = shem.geometry.polar2cart(source, radians=False)
+    source_radius = conf.source.radius
+
 
     if args.index_method:
         detection_method = 'index'
@@ -93,7 +100,7 @@ def run_config(args, surface, config_file):
     displacement_full += xp.array([conf.scan.x_shift,conf.scan.y_shift,conf.scan.z_shift])
 
     # Create the array holding the detector information.
-    scan_data = xp.zeros((detectors_dim, x_dim, y_dim), dtype=xp.float32)
+    scan_data = xp.zeros((d_dim, x_dim, y_dim), dtype=xp.float32)
 
     # Split into pieces
     displacements = xp.split(displacement_full, 2**(math.floor(math.log2(conf.blocks))))
@@ -105,16 +112,16 @@ def run_config(args, surface, config_file):
 
     # Repeat the simulation a number of times.
     scan_loop = tqdm.trange(conf.passes*len(displacements), leave=False)
+    scan_loop.set_description("Tracing {:,} rays...".format(conf.nparallel*conf.passes*conf.npixels**2))
     for d, displacement in enumerate(displacements):
         for p in range(conf.passes):
             # Seed random data repeatedly to prevent weirdness and improve consistency.
-            xp.random.seed(d*p + p)
+            xp.random.seed(d_dim*p + d)
             # Disable NumPy warnings - we avoid performing certain checks on the GPU for speed.
             np.seterr(all="ignore")
             # Since the system is linear, we can calculate the effect of each scattering distribution separately and sum, weighted by their respective strengths.
             rays = shem.source.superposition(rays, displacement, source, source_radius, conf.source.function)
-            scan_data[:, d*block_size:(d+1)*block_size, :] += conf.scattering.diffuse.strength  * shem.scattering.diffuse( rays, surface, conf.scattering.n, detectors, detectors_radius, displacement, method=detection_method)
-            scan_data[:, d*block_size:(d+1)*block_size, :] += conf.scattering.specular.strength * shem.scattering.specular(rays, surface, conf.scattering.n, detectors, detectors_radius, displacement, method=detection_method)
+            scan_data[:, d*block_size:(d+1)*block_size, :] += shem.scattering.calculate( rays, surface, conf.scattering, detectors, detectors_radius, displacement, method=detection_method)
             scan_loop.update()
     scan_loop.close()
 
@@ -128,6 +135,7 @@ def run_config(args, surface, config_file):
 
     # Save the image
     for n, name in enumerate(detector_names):
-        shem.display.save_image(scan_data_[n], config_file.split('.')[0] + '-detector-' + name + '.png')
+        # Flip the y coordinate
+        shem.display.save_image(scan_data_[n][::-1], config_file.split('.')[0] + '-detector-' + name + '.png')
 
     return
