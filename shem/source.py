@@ -5,6 +5,50 @@ import cupy as cp
 from shem.definitions import *
 import shem.geometry
 
+
+# Determine the point source direction vector. We will trace rays in a 1 degree cone and convolve with various source distributions later.
+def direction(a, source_location, source_angle, coordinates, coordinate_indices):
+    xp = cp.get_array_module(a, source_location, coordinates, coordinate_indices)
+    
+    z = xp.array([0,0,1])
+
+    # Start in polar coords
+    a[:,    R] = 1.0
+    a[:,THETA] = 0.0
+    a[:,  PHI] = 0.0
+
+    # Adjust based on the angular displacement and use a conic source function.
+    a[:, THETA] -= coordinates[2][coordinate_indices] +      2*xp.pi*(xp.random.rand(a.shape[0]) - 0.5)
+    a[:, PHI]   -= coordinates[3][coordinate_indices] + source_angle*(xp.random.rand(a.shape[0]) - 0.5)
+
+    # Convert back to Cartesians.
+    a[:] = shem.geometry.polar2cart(a)
+
+    # Rotate the rays such that they point along the vector from source to surface.
+    a[:] = shem.geometry.rotate_frame(z, -source_location, a)
+
+    return a
+
+# Determine the point source origin vector.
+def origin(b, source_location, coordinates, coordinate_indices):
+    xp = cp.get_array_module(b, source_location, coordinates, coordinate_indices)
+    # Start in polar coords
+    b[:] = shem.geometry.cart2polar(source_location)
+
+    # Apply shift in theta and phi
+    b[:, THETA] -= coordinates[2][coordinate_indices]
+    b[:, PHI]   -= coordinates[3][coordinate_indices]
+
+    # Convert back into cartesians
+    b[:] = shem.geometry.polar2cart(b)
+    
+    # Apply shift in x and y
+    b[:, X] -= coordinates[0][coordinate_indices]
+    b[:, Y] -= coordinates[1][coordinate_indices]
+
+    return b
+
+
 # Point source. Points straight to displacement.
 def delta(use_func, rays, displacement, source, source_radius, params):
     xp = cp.get_array_module(use_func, rays, displacement, source)

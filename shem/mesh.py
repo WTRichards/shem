@@ -31,7 +31,7 @@ PLATFORM_FACES = np.array([
     [2, 6, 7],
     [0, 1, 5],
     [0, 5, 4],
-], dtype=np.int)
+], dtype=int)
 
 
 # TODO: Allow the user to halt the program if the mesh is inadequate.

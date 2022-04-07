@@ -1,4 +1,7 @@
 numpy
+cupy
+# cupy-rocm-4-3
+tables
 scipy
 matplotlib
 seaborn
@@ -15,4 +18,3 @@ pandas
 
 tqdm
 
-cupy-rocm-4-3
