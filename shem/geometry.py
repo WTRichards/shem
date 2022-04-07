@@ -87,24 +87,29 @@ def rotate_frame(v_i, v_f, arr):
 
     # Angle between the two vectors.
     theta = xp.arccos(vector_dot(v_i, v_f) / (vector_norm(v_i) * vector_norm(v_f)) ) 
-    c = cos(theta)
-    s = sin(theta)
+    c = xp.cos(theta)
+    s = xp.sin(theta)
     
     # Cross product defining an orthonormal axis
     u = vector_normalise(xp.cross(v_i, v_f))
-    u_x, u_y, u_z = tuple(u)
+    u_x, u_y, u_z = u[X].item(), u[Y].item(), u[Z].item()
 
     # Define the rotation matrix which rotates v_i onto v_f.
     # If this were written explicitly it would look horrid.
-    R = c*xp.identity(3) + (1-c)*xp.outer(u, u) # + s*xp.array([
-    """
+    R = c*xp.identity(3) + (1-c)*xp.outer(u, u) + s*xp.array([
         [   0, -u_z, +u_y],
         [+u_z,    0, -u_x],
         [-u_y, +u_x,    0],
-    ])
-    """
-
-    print(R.get())
+    ], dtype=xp.float32)
 
     # Use einstein summation rather than built-in matrix multiplication for clarity.
     return xp.einsum('ij,kj->ki', R, arr)
+
+# Get the angle between vectors.
+def vector_angle(a, b, radians=True):
+    xp = cp.get_array_module(a)
+    theta = xp.arccos( vector_dot(a, b) / ( vector_norm(a)*vector_norm(b) ) )
+    if radians:
+        return theta
+    else:
+        return xp.degrees(theta)

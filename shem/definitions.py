@@ -36,5 +36,21 @@ R, THETA, PHI = 0, 1, 2
 X, Y, Z = 0, 1, 2
 
 # Small number. Can't be too small since we need to multiply vectors by it and their components might round to 0...
-DELTA = 10**-6
+DELTA = 5e-5
+
+# Hash functions
+
+# https://stackoverflow.com/questions/3431825/generating-an-md5-checksum-of-a-file
+# md5 checksum of the contents of fname
+def hash_file(fname):
+    hash_md5 = hashlib.md5()
+    with open(fname, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+
+# md5 hash of a serialised dictionary
+def hash_obj(dictname):
+    return hashlib.md5(pickle.dumps(dictname)).hexdigest()
+
 

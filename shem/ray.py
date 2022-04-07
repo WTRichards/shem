@@ -23,21 +23,6 @@ def reflect(a, n):
     xp = cp.get_array_module(a, n)
     return a - 2*xp.expand_dims(dot(n, a), -1)*n
 
-def perfect_specular(a, f, s):
-    xp = cp.get_array_module(a, f, s.vertices)
-    n = s.normals[f]
-    return reflect(a, n)
-
-def perfect_diffuse(a, f, s):
-    xp = cp.get_array_module(a, f, s.vertices)
-    n = s.normals[f]
-    # Generate random directions
-    directions = xp.random.rand(n.shape[0], 2)
-    directions[:, 0] *= 2*xp.pi
-    directions[:, 1] *= xp.pi/2
-    # Rotate these random directions such that they are relative to the surface defined by the normal n.
-    return shem.geometry.rotate_vector(shem.geometry.unit_vector(directions), n)
-
 def detected(r, original_index, displacement, original_shape, d, d_r, n):
     xp = cp.get_array_module(r, displacement, d, d_r, n)
 

@@ -239,3 +239,43 @@ def test_rotate_frame():
     # Check that we preserve the angle between the rotated vector and the new axis.
     _rotate_frame_preserved_dot_product()
 
+##############################
+# shem.geometry.vector_angle #
+##############################
+
+def _vector_angle_cart():
+    x, y, z = x_cart, y_cart, z_cart
+    cart = np.array([x,y,z])
+
+    assert is_close( shem.geometry.vector_angle(x, cart, radians=False), np.array([00, 90, 90]) )
+    assert is_close( shem.geometry.vector_angle(y, cart, radians=False), np.array([90, 00, 90]) )
+    assert is_close( shem.geometry.vector_angle(z, cart, radians=False), np.array([90, 90, 00]) )
+
+
+def _vector_angle_known():
+    a = np.array([
+        [1,1,0],
+        [1,1,0],
+    ])
+    
+    b = np.array([
+        [1,1,0],
+        [1,0,0],
+    ])
+
+    result = np.array([
+        0,
+        45,
+    ])
+
+    print(shem.geometry.vector_angle(a, b, radians=False))
+
+    assert is_close( shem.geometry.vector_angle(a, b, radians=False), result )
+
+
+def test_vector_angle():
+    # Check the function works for the Cartesian basis vectors.
+    _vector_angle_cart()
+    # Check the function works for some known values
+    _vector_angle_known()
+

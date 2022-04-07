@@ -26,65 +26,6 @@ import shem.source
 # TODO: Implement the ability to create a default configuration file.
 # TODO: Setup Cerberus input validator.
 
-
-# Define the table of rays we are tracking.
-class TracedRay(tb.IsDescription):
-    coordinate_index = tb.UInt32Col(pos=0) # Index of coordinate tuple defined in coordinates.
-
-    # Ray properties
-    a_polar_i  = tb.Float16Col(shape=(2,), pos=1) # Initial ray direction
-    a_polar_f  = tb.Float16Col(shape=(2,), pos=2) # Final ray direction
-    b_f        = tb.Float16Col(shape=(3,), pos=3) # Final ray origin
-    n_scat     = tb.UInt8Col(pos=4)               # Number of scattering events undergone by this ray. This shouldn't be more than 256 in a reasonable world.
-
-# Define a table of file name and file contents hashes.
-class FileHash(tb.IsDescription):
-    # ID column
-    name     = tb.StringCol(itemsize=32,pos=0)
-    contents = tb.StringCol(itemsize=32,pos=1)
-
-# Define a table of the hashes of serialised scatteing functions (corresponding to table names) and the serialised functions themselves.
-class ScatteringFunction(tb.IsDescription):
-    # ID column
-    serial_hash = tb.StringCol(itemsize=32,pos=0)
-    serial_func = tb.StringCol(itemsize=32,pos=1)
-
-# Define a table of the hashes of serialised source functions (corresponding to table names) and the serialised functions themselves.
-class SourceFunction(tb.IsDescription):
-    # ID column
-    serial_hash = tb.StringCol(itemsize=32,pos=0)
-    serial_func = tb.StringCol(itemsize=32,pos=1)
-
-# Define a table of the hashes of serialised detectors and the serialised detectors themselves.
-class Detector(tb.IsDescription):
-    # ID column
-    serial_hash = tb.StringCol(itemsize=32,pos=0)
-    shape       = tb.StringCol(itemsize=16,pos=1)
-    size        = tb.Float16Col(pos=2)
-    position    = tb.Float16Col(shape=(3,),pos=3)
-    normal      = tb.Float16Col(shape=(3,),pos=4)
-
-# Define a view of the simulation based on the detector and source function used.
-class SimulationView(tb.IsDescription):
-    # ID column
-    coordinate_index = tb.UInt32Col(pos=0)  # Index of coordinate tuple defined in coordinates.
-    detector         = tb.StringCol(itemsize=32,pos=2) # Hash of the detector used.
-    source_function  = tb.StringCol(itemsize=32,pos=1) # Hash of the source function used.
-    signal           = tb.Float32Col(pos=3) # Strength of the signal.
-
-# https://stackoverflow.com/questions/3431825/generating-an-md5-checksum-of-a-file
-# md5 checksum of the contents of fname
-def md5_file(fname):
-    hash_md5 = hashlib.md5()
-    with open(fname, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            hash_md5.update(chunk)
-    return hash_md5.hexdigest()
-
-# md5 hash of a serialised dictionary
-def md5_dict(dictname):
-    return hashlib.md5(pickle.dumps(dictname)).hexdigest()
-
 def create_default(path):
     """
     Creates the default configuration file at the path supplied.
@@ -96,68 +37,11 @@ def load_config(config_file):
     conf = SourceFileLoader("conf", config_file).load_module()
     return conf
 
-def create_new_table(db, group, description, SourceFunction=None):
-    # Filter to enable compression on the larger tables.
-    io_filter = tb.Filters(complevel=1, complib='lzo', shuffle=True, fletcher32=True)
-    
-    if SourceFunction is None:
-        name = 'default'
-    else:
-        name = md5_dict(SourceFunction)
-
-    return db.create_table(group, name, description, "Scattering Function Hash: " + name, expectedrows=10**8, filters=io_filter)
-
-# Setup the database we will use to store the results of our computation.
-def db_setup(args):
-    """
-    Setup the database file for running the simulation.
-    """
-
-    mesh_file   = os.path.join(args.work_dir, args.mesh)
-    config_file = os.path.join(args.work_dir, args.config)
-    h5_file     = os.path.join(args.work_dir, args.database)
-    
-    # Load the config file
-    conf = load_config(config_file)
-
-    # Open the database file
-    db = tb.open_file(h5_file, mode="a", title="Ray Tracing Database")
-
-    # Create a group to store the details of the simulation.
-    sim_group  = db.create_group("/", 'simulation', 'Simulation Results')
-    ana_group  = db.create_group("/",   'analysis', 'Simulation Analysis')
-    meta_group = db.create_group("/",   'metadata', 'File and Function Metadata')
-
-    # Raw data derived from the simulation using the scattering function provided in the config.
-    table_raw_sim_default = create_new_table(db, sim_group,      TracedRay, SourceFunction=None)
-    # Analysis of the raw data described above.
-    table_raw_ana_default = create_new_table(db, ana_group, SimulationView, SourceFunction=None)
-    
-    # File hashes to ensure simulation integrity
-    table_file_hashes   = db.create_table(meta_group,                'files',           FileHash, "File Hashes")
-
-    # Serialised scattering functions and hashes to track their usage.
-    table_scat_hashes   = db.create_table(meta_group, 'scattering_functions', ScatteringFunction, "Serialised Scattering Functions")
-    table_source_hashes = db.create_table(meta_group,     'source_functions',     SourceFunction, "Serialised Source Functions")
-    table_det_hashes    = db.create_table(meta_group,            'detectors',           Detector, "Detector Properties")
-
-    # Save the file hashes for the mesh and the config file.
-    files = [config_file, mesh_file]
-    file_hash = table_file_hashes.row
-    for f in files:
-        file_hash['name'] = hashlib.md5(f.encode()).hexdigest()
-        file_hash['contents'] = md5_file(f)
-        file_hash.append()
-    table_file_hashes.flush()
-
-    db.close()
-
-    return
 
 # Loop until interrupted with Ctrl-C
 def trace_rays(
     args,                # Command line arguments.
-    db,                  # Database table to save the scan results.
+    rt_table,                  # Database table to save the scan results.
     source_location,     # Location of point ray source.
     source_angle,        # Angular diameter of the point source. Convolve with source function later.
     coordinates,         # 4 x n array of coordinates in (x, y, theta, phi) to scan.
@@ -190,16 +74,16 @@ def trace_rays(
     start_time = time.time()
     
     # Number of rays in the database.
-    old_rays_traced = len(db)
+    old_rays_traced = len(rt_table)
 
     # Maximum number of rays we are allowed to trace.
     if save_results and max_scans > 0:
-        max_rays_db = coordinates.shape[1] * max_scans
-        if old_rays_traced >= max_rays_db:
-            print("At least " + str(max_scans) + " scans for scattering function hash " + str(md5_dict(scattering_function)) + " have already been run. Continuing...")
+        max_rays_rt_table = coordinates.shape[1] * max_scans
+        if old_rays_traced >= max_rays_rt_table:
+            print("At least " + str(max_scans) + " scans for scattering function hash " + str(hash_obj(scattering_function)) + " have already been run. Continuing...")
             return
     else:
-        max_rays_db = None
+        max_rays_rt_table = None
 
     # Number of rays we will have traced when the simulation has been run once.
     rays_traced = old_rays_traced
@@ -207,15 +91,15 @@ def trace_rays(
     # Track which iteration of the loop we are on.
     # We need to use c rather than i because we use i in a for loop later on.
     c = 0
-    while (iters < 0 or c < iters) and (max_scans < 0 or rays_traced < max_rays_db) :
+    while (iters < 0 or c < iters) and (max_scans < 0 or rays_traced < max_rays_rt_table) :
         c += 1
         rays_traced += rays_scan
 
         # We may need to lower the number of rays we trace in a batch so that we have a complete scan without overrunning.
-        if max_rays_db is not None and save_results and rays_traced >= max_rays_db:
+        if max_rays_rt_table is not None and save_results and rays_traced >= max_rays_rt_table:
             # Subtract the number of rays over the maximum specified.
-            rays_scan   = max_rays_db - (rays_traced - rays_scan)
-            rays_traced = max_rays_db
+            rays_scan   = max_rays_rt_table - (rays_traced - rays_scan)
+            rays_traced = max_rays_rt_table
             # Reallocate the memory required to run the final batch.
             del rays_i
             rays_i = xp.empty((2, rays_scan, 3), dtype=xp.float32)
@@ -231,7 +115,7 @@ def trace_rays(
             # Determine the point source direction vector.
             # We will trace rays in a cone defined by source_angle and convolve with various source distributions later.
             # We also want the angular distribution relative to the source vector for analysis later, so return that too. 
-            a = shem.source.direction(a, source_location, source_angle, coordinates, coordinate_indices)
+            a, a_polar_i = shem.source.direction(a, source_location, source_angle, coordinates, coordinate_indices)
             # Determine the point source origin vector.
             b = shem.source.origin(   b, source_location,               coordinates, coordinate_indices)
 
@@ -241,12 +125,6 @@ def trace_rays(
             # The data we wish to upload to the database.
             a_polar_f = shem.geometry.cart2polar(                            rays_f[0]                    )[..., 1:]
             b_f       =                                                      rays_f[1]
-            # Rotate the direction vectors back to being relative to [0,0,1]
-            z = xp.array([0,0,1])
-            a_polar_i = shem.geometry.cart2polar(shem.geometry.rotate_frame(-source_location, z, rays_i[0]))[..., 1:]
-            # Add back the coordinates we subtracted before.
-            a_polar_i[..., 0] += coordinates[2][coordinate_indices]
-            a_polar_i[..., 1] += coordinates[3][coordinate_indices]
 
             # Move the data off the GPU
             if args.use_gpu:
@@ -260,7 +138,7 @@ def trace_rays(
             if save_results:
                 # Try and look for a better way to do this and parallelise.
                 for i in range(rays_scan):
-                    ray = db.row
+                    ray = rt_table.row
                     ray['coordinate_index'] = coordinate_indices[i]
                     ray['a_polar_i'] =   a_polar_i[i]
                     ray['a_polar_f'] =   a_polar_f[i]
@@ -268,15 +146,15 @@ def trace_rays(
                     ray['n_scat']    =      n_scat[i]
                 
                     ray.append()
-                db.flush()
+                rt_table.flush()
 
                 # Keep track of the number of rays traced this session.
                 if args.verbose:
                     print("{:,} complete simulations run, {:,} total rays traced this session, {:} total seconds elapsed...".format(rays_traced // coordinates.shape[1], rays_traced-old_rays_traced, time.time()-start_time), end='\r')
 
             # If we have already traced the required number of rays, break the loop.
-            if max_rays_db is not None and save_results and rays_traced == max_rays_db:
-                print("Successfully completed " + str(max_scans) + " scans for scattering function hash " + str(md5_dict(scattering_function)) + ". Continuing...")
+            if max_rays_rt_table is not None and save_results and rays_traced == max_rays_rt_table:
+                print("Successfully completed " + str(max_scans) + " scans for scattering function hash " + str(hash_obj(scattering_function)) + ". Continuing...")
 
         # Exit the loop.
         except KeyboardInterrupt:
@@ -286,7 +164,7 @@ def trace_rays(
 # Determine the maximum number of rays which can be traced at once.
 def calc_max_rays_scan(
     args,                # Command line arguments.
-    db,                  # Database table to save the scan results.
+    rt_table,                  # Database table to save the scan results.
     source_location,     # Location of point ray source.
     source_angle,        # Angular diameter of the point source. Convolve with source function later.
     coordinates,         # 4 x n array of coordinates in (x, y, theta, phi) to scan.
@@ -311,7 +189,7 @@ def calc_max_rays_scan(
                 iters = iters,
                 save_results = save_results,
                 args = args,
-                db = db,
+                rt_table = rt_table,
                 source_location = source_location,
                 source_angle = source_angle,
                 coordinates = coordinates,
@@ -352,20 +230,17 @@ def generate(args):
     # Open the database file.
     db = tb.open_file(h5_file, mode="r+")
 
-    # Compression
-    # We could fine tune this like we do with the number of rays but I don't see the point as of now...
-    io_filter = tb.Filters(complevel=1, complib='lzo', shuffle=True, fletcher32=True)
-
-    # Predetermined data tables
-    db_default_sim = db.root.simulation.default
-    db_meta_files  = db.root.metadata.files
-    db_meta_func   = db.root.metadata.scattering_functions
+    # Predetermined data structures
+    rt_default_table = db.root.rt.default  # The default ray tracing database
+    dt_default_arr   = db.root.dt.default  # The default ray detection array
+    sig_default_arr  = db.root.sig.default # The default detected signal array
+    meta_files_table = db.root.metadata.files # File metadata (hashes)
 
     # TODO: Verify file hashes here...
     # This really shouldn't be that hard.
     if args.verbose:
         print("Verifying file hashes match those in the database...")
-        print(db_meta_files[0])
+        print(meta_files_table[0])
 
     # Extract the combined meshes from the file
     mesh = trimesh.load_mesh(mesh_file).dump(concatenate=True)
@@ -389,6 +264,20 @@ def generate(args):
                                     properties = properties,
                                 per_face_props = per_face_props,
                                             xp = xp)
+
+    # Apply coordinate shifts to the surface.
+    try:
+        surface.shift_x(conf.x_shift)
+    except:
+        pass
+    try:
+        surface.shift_y(conf.y_shift)
+    except:
+        pass
+    try:
+        surface.shift_z(conf.z_shift)
+    except:
+        pass
 
     # Load in the variable definitions from the config file.
     # There is probably a more elegant way to do this but this is pretty general and does the job.
@@ -438,24 +327,27 @@ def generate(args):
     
     # Calculate the maximum number of rays we can trace in one batch for this simulation.
     # The results will not be saved. If this takes too long, consider setting iters to be a smaller value.
-    max_rays_scan = calc_max_rays_scan(
-        args = args,
-        db = db_default_sim,
-        source_location = source_location,
-        source_angle = source_angle,
-        coordinates = coordinates,
-        surface = surface,
-        scattering_function = scattering_function,
-        max_scatters = max_scatters,
-        max_rays_scan_init = max_rays_scan_init,
-        iters = 32,
-        save_results = False
-    )
+    if args.use_gpu:
+        max_rays_scan = calc_max_rays_scan(
+            args = args,
+            rt_table = rt_default_table,
+            source_location = source_location,
+            source_angle = source_angle,
+            coordinates = coordinates,
+            surface = surface,
+            scattering_function = scattering_function,
+            max_scatters = max_scatters,
+            max_rays_scan_init = max_rays_scan_init,
+            iters = 32,
+            save_results = False,
+        )
+    else:
+        max_rays_scan = 2**8
 
-    # Run the simulation with the greatest possible number of rays
+    # Trace and scatter the rays off the surface
     trace_rays(
         args = args,
-        db = db_default_sim,
+        db = rt_default_table,
         source_location = source_location,
         source_angle = source_angle,
         coordinates = coordinates,
@@ -465,8 +357,33 @@ def generate(args):
         rays_scan = max_rays_scan,
         max_scans = max_scans,
         iters = -1,
-        save_results = True
+        save_results = True,
     )
+
+    # Detect the rays which were scattered.
+    """
+    detect_rays(
+        args = args,
+        rt_table = rt_default_table,
+        dt_arr   = dt_default_arr,
+        detector_location = detector_location,
+        detector_normals = detector_normal,
+        detector_radius = detector_radius,
+        coordinates = coordinates,
+        save_results = True,
+    )
+
+    # Convolve the rays with the source function and sum over each index, saving the result.
+    source_convolve_rays(
+        args = args,
+        rt_table = rt_default_table,
+        dt_arr   = dt_default_arr,
+        sig_arr  = sig_default_arr,
+        arr_sig = db_default_sig,
+        source_function = source_function,
+        save_results = True,
+    )
+    """
 
     db.close()
 

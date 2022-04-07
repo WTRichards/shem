@@ -16,6 +16,7 @@ import shem.mesh
 import shem.ray
 import shem.scattering
 import shem.source
+import shem.simulation
 import shem.surface
 
 def mesh(args):
@@ -109,7 +110,7 @@ def generate(args):
             raise ValueError("Config file: " + config_file + " does not exist.")
         if not os.path.isfile(db_file):
             # Setup the database
-            shem.configuration.db_setup(args)
+            shem.simulation.db_setup(args)
         # Run the simulation in the default mode.
         shem.configuration.generate(args)
     return

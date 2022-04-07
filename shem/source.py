@@ -10,24 +10,28 @@ import shem.geometry
 def direction(a, source_location, source_angle, coordinates, coordinate_indices):
     xp = cp.get_array_module(a, source_location, coordinates, coordinate_indices)
     
-    z = xp.array([0,0,1])
+    z = xp.array([0,0,1], dtype=xp.float32)
 
-    # Start in polar coords
+    # Start in polar coords with a conic source function
+    a_polar_i = xp.array([2*xp.pi*xp.random.rand(a.shape[0]), source_angle*xp.random.rand(a.shape[0])]).T
+
     a[:,    R] = 1.0
-    a[:,THETA] = 0.0
-    a[:,  PHI] = 0.0
+    a[:,THETA] = a_polar_i[:,0]
+    a[:,  PHI] = a_polar_i[:,1]
 
-    # Adjust based on the angular displacement and use a conic source function.
-    a[:, THETA] -= coordinates[2][coordinate_indices] +      2*xp.pi*(xp.random.rand(a.shape[0]) - 0.5)
-    a[:, PHI]   -= coordinates[3][coordinate_indices] + source_angle*(xp.random.rand(a.shape[0]) - 0.5)
-
-    # Convert back to Cartesians.
+    # Convert back to Cartesians and rotate so the rays are directed from the source.
     a[:] = shem.geometry.polar2cart(a)
-
-    # Rotate the rays such that they point along the vector from source to surface.
     a[:] = shem.geometry.rotate_frame(z, -source_location, a)
 
-    return a
+    # Convert back to polars to adjust the source angle based on the angular displacement.
+    a[:] = shem.geometry.cart2polar(a)
+    a[:, THETA] += coordinates[2][coordinate_indices]
+    a[:,   PHI] -= coordinates[3][coordinate_indices]
+
+    # Convert back into Cartesians
+    a[:] = shem.geometry.polar2cart(a)
+
+    return a, a_polar_i
 
 # Determine the point source origin vector.
 def origin(b, source_location, coordinates, coordinate_indices):
@@ -36,8 +40,8 @@ def origin(b, source_location, coordinates, coordinate_indices):
     b[:] = shem.geometry.cart2polar(source_location)
 
     # Apply shift in theta and phi
-    b[:, THETA] -= coordinates[2][coordinate_indices]
-    b[:, PHI]   -= coordinates[3][coordinate_indices]
+    b[:, THETA] += coordinates[2][coordinate_indices]
+    b[:, PHI]   += coordinates[3][coordinate_indices]
 
     # Convert back into cartesians
     b[:] = shem.geometry.polar2cart(b)
@@ -48,6 +52,17 @@ def origin(b, source_location, coordinates, coordinate_indices):
 
     return b
 
+# A uniform source function. All rays are weighted equally.
+def uniform(theta, phi, **kwargs):
+    xp = cp.get_array_module(theta, phi)
+    return xp.ones_like(theta)
+
+# A Gaussian (in theta) source function.
+def gaussian(theta, phi, **kwargs):
+    xp = cp.get_array_module(theta, phi)
+    mu = 0
+    sigma = kwargs['sigma']
+    return ( 1.0 / xp.sqrt(2*xp.pi*sigma**2) ) * xp.exp( - ( theta - mu )**2 / ( 2 * sigma**2 ) )
 
 # Point source. Points straight to displacement.
 def delta(use_func, rays, displacement, source, source_radius, params):

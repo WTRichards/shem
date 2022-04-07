@@ -7,7 +7,25 @@ import shem.ray
 from   shem.definitions import *
 
 
-# TODO: Generalise this like the source function.
+def perfect_specular(a, f, s):
+    xp = cp.get_array_module(a, f, s.vertices)
+    n = s.normals[f]
+    return shem.ray.reflect(a, n)
+
+def perfect_diffuse(a, f, s):
+    xp = cp.get_array_module(a, f, s.vertices)
+    z = xp.array([0,0,1], dtype=xp.float32)
+    n = s.normals[f]
+    # Generate random directions
+    directions = xp.random.rand(n.shape[0], 2)
+    directions[:, 0] *= 2*xp.pi
+    directions[:, 1] *= xp.pi
+    # Convert the random directions into vectors.
+    out = shem.geometry.unit_vector(directions)
+    # If the ray is going into the surface, flip it so it goes out.
+    out *= xp.expand_dims(xp.sign(shem.geometry.vector_dot(out, n)), -1)
+    return out
+
 def scattering_function(a, faces, surface, func):
     xp = cp.get_array_module(a, surface.vertices, faces)
     
