@@ -6,36 +6,62 @@ import shem.geometry
 import shem.ray
 from   shem.definitions import *
 
+########################
+# Scattering Functions #
+########################
 
 def perfect_specular(a, f, s):
+    '''
+    A scattering function which describes perfect specular scattering
+    '''
     xp = cp.get_array_module(a, f, s.vertices)
     n = s.normals[f]
-    return shem.ray.reflect(a, n)
+    
+    out = shem.ray.reflect(a, n)
+
+    # The incident and reflected rays should make the same angle to the normal.
+    assert xp.isclose(shem.geometry.vector_dot(out, n), -shem.geometry.vector_dot(a, n)).all()
+
+    return out
 
 def perfect_diffuse(a, f, s):
+    '''
+    A scattering function which describes perfect diffuse scattering
+    '''
     xp = cp.get_array_module(a, f, s.vertices)
+
     z = xp.array([0,0,1], dtype=xp.float32)
     n = s.normals[f]
+    
     # Generate random directions
     directions = xp.random.rand(n.shape[0], 2)
     directions[:, 0] *= 2*xp.pi
     directions[:, 1] *= xp.pi
+    
     # Convert the random directions into vectors.
     out = shem.geometry.unit_vector(directions)
-    # If the ray is going into the surface, flip it so it goes out.
+    
+    # If the ray is going into the surface, flip it so it goes out of it.
     out *= xp.expand_dims(xp.sign(shem.geometry.vector_dot(out, n)), -1)
+
+    # The rays point out of the surface.
+    assert (shem.geometry.vector_dot(out, n) > 0).all()
+    
     return out
 
-def scattering_function(a, faces, surface, func):
+def calc_scattering_function(a, faces, surface, func):
+    '''
+    Calculate the result of each ray experiencing a random scattering function.
+    '''
     xp = cp.get_array_module(a, surface.vertices, faces)
-    
+
     r_dim = a.shape[0]
     out = xp.empty_like(a)
     choice = xp.random.rand(r_dim)
 
     thresholds = xp.zeros(len(func)+1, dtype=xp.float32)
     for i, k in enumerate(func):
-        thresholds[i+1] = func[k][1]
+        thresholds[i+1] = func[k]["strength"]
     thresholds = thresholds.cumsum() / thresholds.sum()
 
     # Choose whether each ray is reflected in a specular or diffuse manner.
@@ -43,9 +69,13 @@ def scattering_function(a, faces, surface, func):
         chosen_function = xp.logical_and(thresholds[i] < choice, choice < thresholds[i+1])
         incoming_vectors = a[chosen_function]
         faces_hit        = faces[chosen_function]
-        out[chosen_function] = func[k][0](incoming_vectors, faces_hit, surface, **func[k][2])
+        out[chosen_function] = func[k]["function"](incoming_vectors, faces_hit, surface, **func[k]["kwargs"])
 
     return out
+
+######################
+# Surface Scattering #
+######################
 
 def scatter(r, surface, func, n_scat=255):
     xp = cp.get_array_module(r, surface.vertices)
@@ -70,7 +100,8 @@ def scatter(r, surface, func, n_scat=255):
     for i in range(n_scat):
         # Detect which faces the rays collide with.
         # We need to keep track of which ray is which, so return indices.
-        t, scattered_rays_indices, scattered_faces_indices = shem.ray.detect_collisions(r_f[:, scattered, :], surface) 
+        t, scattered_rays_indices, scattered_faces_indices = shem.detection.detect_surface_collisions(r_f[:, scattered, :], surface)
+
         # Return now if there are no collisions.
         if t is None:
             break
@@ -89,83 +120,10 @@ def scatter(r, surface, func, n_scat=255):
         b_ =               b[scattered]
         n_ = surface.normals[scattered_faces_indices]
 
-        a[scattered] = scattering_function(a_, scattered_faces_indices, surface, func)
         # Add a little bit to b so that the ray is scattered just above the surface.
         # This prevents collision detection weirdness.
-        b[scattered] = shem.ray.parameterise(a_, b_, t) + DELTA*n_
+        b[scattered] = shem.ray.parameterise(a_, b_, t) + DELTA*n_        
+        a[scattered] = calc_scattering_function(a_, scattered_faces_indices, surface, func)
 
     return r_f, n_s
 
-
-"""
-def calculate(r, s, conf, d, d_r, displacement, face_properties=None):
-    xp = cp.get_array_module(r,d,d_r)
-    
-    # Surface normals
-    n = s.normals
-    
-    # Array sizes
-    d_dim     = d_r.size
-    x_dim     = r.shape[1]
-    y_dim     = r.shape[2]
-    nparallel = r.shape[3]
-    f_dim     = n.shape[0]
-
-    # Shape of the number of rays we are tracing
-    original_shape = (x_dim, y_dim, nparallel)
-    original_indices = xp.arange(x_dim*y_dim*nparallel)
-
-    # Assume all detectors point straight down.
-    detector_normal_default = xp.array([0,0,-1])
-    d_n = xp.tile(detector_normal_default, d_dim)
-
-    # Initialise output tensor.
-    out = xp.zeros((d_dim, x_dim, y_dim))
-    
-    # Rename the variables of interest to match the loop and reshape for convenience.
-    secondary_rays = r.reshape(2,-1,3)
-    a_ = secondary_rays[0]
-    b_ = secondary_rays[1]
-    scattered_rays_indices_original = original_indices
-   
-    # Perform N scatterings
-    for i in range(conf.n+1):
-        # Detect which faces the rays collide with.
-        # We need to keep track of which ray is which, so return indices.
-        t, scattered_rays_indices, scattered_faces_indices = shem.ray.detect_collisions(secondary_rays, s)
-
-        # Determine the rays which did not collide with the surface.
-        # If we were strictly using NumPy we could use np.delete.
-        not_scattered = xp.ones(secondary_rays.shape[1], dtype=xp.bool)
-        not_scattered[scattered_rays_indices] = False
-        not_scattered_rays_indices_original = xp.unravel_index(scattered_rays_indices_original[not_scattered], original_shape)
-        
-        # Back-reference the indices to their original source ray.
-        scattered_rays_indices_original = scattered_rays_indices_original[scattered_rays_indices]
-    
-        # Detect whether they enter a detector.
-        out += shem.ray.detected(
-                secondary_rays[:, not_scattered, :],
-                not_scattered_rays_indices_original,
-                displacement,
-                original_shape,
-                d, d_r, d_n)
-
-        # Return now if there are no collisions.
-        if t is None:
-            return out
-       
-        # Calculate the secondary rays produced by scattering.
-        a_ = a_[scattered_rays_indices]
-        b_ = b_[scattered_rays_indices]
-        n_ = n[scattered_faces_indices]
-        secondary_rays = xp.stack((
-            scattering_function(conf, a_, n_, scattered_faces_indices, face_properties),
-            # Add a little bit to b so that the ray is scattered just above the surface.
-            # This prevents collision detection weirdness.
-            shem.ray.parameterise(a_, b_, t) + DELTA*n_,
-        ))
-
-       
-    return out
-"""

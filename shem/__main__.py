@@ -3,7 +3,9 @@
 import argparse, textwrap
 import os, sys, importlib
 import numpy as np
+np.random.seed(0)
 import cupy as cp
+cp.random.seed(0)
 
 import trimesh
 import tqdm
@@ -18,6 +20,7 @@ import shem.scattering
 import shem.source
 import shem.simulation
 import shem.surface
+import shem.optimisation
 
 def mesh(args):
     
@@ -40,7 +43,7 @@ def mesh(args):
     # Generate the mesh object from the raw triangles.
     mesh = shem.mesh.convert_triangles_to_mesh(triangles)
 
-    # Inspect the mesh before using it.
+    # Inspect the mesh before using it. This lead to a segmentation fault and I have no idea why but the mesh saves regardless. Maybe it's because I am using X tunnelling?
     if not args.quiet:
         print("Displaying mesh...")
         scene = trimesh.scene.scene.Scene(mesh)
@@ -73,49 +76,7 @@ def mesh(args):
 
     return
 
-def generate(args):
-    # Create the work directory if it doesn't exist already.
-    if not os.path.isdir(args.work_dir):
-        print("Creating " + args.work_dir)
-        os.makedirs(args.work_dir)
-
-    # Check if the working directory is either empty or has a lock file.
-    lock_file = os.path.join(args.work_dir, "shem.lock")
-    if len(os.listdir(args.work_dir)) != 0 and not os.path.isfile(lock_file):
-        raise OSError("The working directory is not empty and does not have a lock file.")
-    # Create a lock file if one does not already exist.
-    elif not os.path.isfile(lock_file):
-        open(lock_file,'a').close()
-
-
-    if not args.mesh:
-        print("Either specify a mesh in .glb format or run the mesh sub-command provided by this tool to generate a mesh to image e.g. python -m shem mesh --help")
-        sys.exit()
-
-    # Create the default_config.py file if no configuration file supplied
-    if not args.config:
-        print("No configuration file supplied.")
-        default_config_file = os.path.join(args.work_dir, "default_config.py")
-        if os.path.isfile(default_config_file):
-            print("Check for the default configuration in your work directory.")
-        else:
-            print("Generating default_config.py and exiting.")
-            shem.configuration.create_default(default_config_file)
-        sys.exit()
-    else:
-        config_file = os.path.join(args.work_dir, args.config)
-        db_file     = os.path.join(args.work_dir, args.database)
-        # Check that the config file supplied on the command line exists.
-        if not os.path.isfile(config_file):
-            raise ValueError("Config file: " + config_file + " does not exist.")
-        if not os.path.isfile(db_file):
-            # Setup the database
-            shem.simulation.db_setup(args)
-        # Run the simulation in the default mode.
-        shem.configuration.generate(args)
-    return
-
-def analyse(args):
+def check_configuration_and_run(args, func):
     # Create the work directory if it doesn't exist already.
     if not os.path.isdir(args.work_dir):
         print("Creating " + args.work_dir)
@@ -134,27 +95,33 @@ def analyse(args):
         sys.exit()
 
     # Create the default_config.py file if no configuration file supplied
-    if not args.config:
-        print("No configuration file supplied.")
-        default_config_file = os.path.join(args.work_dir, "default_config.py")
-        if os.path.isfile(default_config_file):
-            print("Check for the default configuration in your work directory.")
-        else:
-            print("Generating default_config.py and exiting.")
-            shem.configuration.create_default(default_config_file)
+    config_file = os.path.join(args.work_dir, args.config)
+    if not os.path.isfile(config_file):
+        print("The configuration file " + config_file +  " does not exist.")
+        print("Writing the default configuration to" + config_file + " and exitting. You should check the contents of the config file for more information...")
+        shem.configuration.create_default(config_file)
         sys.exit()
     else:
-        config_file = os.path.join(args.work_dir, args.config)
-        db_file     = os.path.join(args.work_dir, args.database)
-        # Check that the config file supplied on the command line exists.
-        if not os.path.isfile(config_file):
-            raise ValueError("Config file: " + config_file + " does not exist.")
+        db_file = os.path.join(args.work_dir, args.database)
         if not os.path.isfile(db_file):
-            # Setup the database
-            shem.configuration.db_setup(args)
-        # Begin the analysis
-        shem.configuration.run_analysis(args)
+            # Setup the database.
+            shem.database.db_setup(args)
+        # Run the function.
+        func(args)
     return
+
+def run_simulation_default_wrapper(args):
+    '''
+    Run the simulation using the default settings in the config file.
+    '''
+    return check_configuration_and_run(args, shem.simulation.run_simulation_default)
+
+def run_analysis_wrapper(args):
+    '''
+    Run the image analysis program.
+    '''
+    print(args.database)
+    return check_configuration_and_run(args, shem.optimisation.run_analysis)
 
 def main():
     # Main Parser
@@ -165,7 +132,7 @@ def main():
     parser.add_argument("-g", "--use-gpu",      help="use the gpu",            action="store_true")
     parser.add_argument("-w", "--work-dir",     help="working directory",      default="./work")
     parser.add_argument("-d", "--database",     help="h5 database file",       default="simulation.db")
-    parser.add_argument("-m", "--mesh",         help="mesh file as glb",       default="mesh.glb")
+    parser.add_argument("-m", "--mesh",         help="mesh file as stl",       default="mesh.stl")
     
     # Either verbose or quiet, not both
     verbosity = parser.add_mutually_exclusive_group()
@@ -175,18 +142,18 @@ def main():
     subparsers = parser.add_subparsers(help='subcommands')
 
     # Simulation subparser
-    parser_gen = subparsers.add_parser('generate', aliases=['gen'], help='image generation subcommand')
+    parser_gen = subparsers.add_parser('generate', aliases=['gen'], help='create an image using the settings in the config file')
     # Specify a config file to run the simulation and help with analysis
-    parser_gen.add_argument("config", help="config file in Python", default="default_config.py")
-    parser_gen.set_defaults(func=generate)
+    parser_gen.add_argument("config", help="config file in Python", default="config.py")
+    parser_gen.set_defaults(func=run_simulation_default_wrapper)
     
-    parser_ana = subparsers.add_parser('analyse', aliases=['ana'], help='image analysis subcommand')
+    parser_ana = subparsers.add_parser('analyse', aliases=['ana'], help='analyse an image based on the settings and paramters template in the config file ')
     # Specify a config file to run the simulation and help with analysis
-    parser_ana.add_argument("config", help="config file in Python", default="default_config.py")
-    parser_ana.set_defaults(func=analyse)
+    parser_ana.add_argument("config", help="config file in Python", default="config.py")
+    parser_ana.set_defaults(func=run_analysis_wrapper)
     
     # Mesh subparser
-    parser_mesh = subparsers.add_parser('mesh', aliases=[], help='mesh creation subcommand')
+    parser_mesh = subparsers.add_parser('mesh', aliases=[], help='create an STL mesh using the command line')
     # Mesh parameters
     parser_mesh.add_argument("-W", "--width",  help="width parameter for meshes", type=float, default=1.0)
     parser_mesh.add_argument("-H", "--height", help="height parameter for meshes", type=float, default=0.2)

@@ -23,48 +23,8 @@ def reflect(a, n):
     xp = cp.get_array_module(a, n)
     return a - 2*xp.expand_dims(dot(n, a), -1)*n
 
-def detected(r, original_index, displacement, original_shape, d, d_r, n):
-    xp = cp.get_array_module(r, displacement, d, d_r, n)
 
-    a = r[0]
-    b = r[1]
-    x = original_index[0]
-    y = original_index[1]
-    n_p = original_index[2]
-    
-    r_dim = r.shape[1]
-    d_dim = d_r.size
-    
-    # Create an array of detectors analogous to the sources corresponding to each ray.
-    d_   =   (d.reshape(d_dim, 1, 1, 3) + displacement)[:, x, y, :]
-    n_   =   n.reshape(d_dim, 1,     3)
-    d_r_ = d_r.reshape(d_dim, 1)
-    a_   =   a.reshape(1,     r_dim, 3)
-    b_   =   b.reshape(1,     r_dim, 3)
-
-
-    t_ = intersects_plane_time(a_, b_, n_, d_)
-    p_ = parameterise(a_, b_, t_)
-
-    # The ray is detected at time greater than zero.
-    time_matches = t_ > 0
-    # The ray hits the front face of the detector instead of the rear - not usually a problem.
-    # normal_matches = dot(n_, a_) < 0
-    # The ray is within a distance r of the center of the detector.
-    within_edges = norm(p_ - d_) < d_r_
-
-    # The matrix of truth values for which all conditions above are satisfied.
-    detection_matrix = within_edges * time_matches # * normal_matches
-
-    # Define the shape of the output array
-    out = xp.zeros((d_dim, *original_shape), dtype=xp.bool)
-    # Set the indices where an applicable ray has been traced to the number of rays that are detected.
-    out[:, x, y, n_p] = detection_matrix
-
-    return out.sum(-1)
-
-
-def detect_collisions(r, s):
+def detect_surface_collisions(r, s):
     xp = cp.get_array_module(r)
 
     a = r[0]
@@ -93,18 +53,18 @@ def detect_collisions(r, s):
     # The rays intersect at time greater than zero.
     time_matches = xp.squeeze(t_ > 0, -1)
     # The ray hits the 'outside' of the surface instead of the inside.
-    # normal_matches = xp.squeeze(dot(n_, a_) < 0, -1)
+    normal_matches = xp.squeeze(dot(n_, a_) < 0, -1)
     # The ray is within the three edges of the triangle, defined using the sign of the dot product.
     within_edges = (dot(n_, cross(e_, p_ - v_)) > 0).prod(axis=-1, dtype=xp.bool)
     # Free the memory used by p
     del p_
 
     # The matrix of truth values for which all conditions above are satisfied.
-    collisions_matrix = within_edges * time_matches # * normal_matches
+    collisions_matrix = within_edges * time_matches * normal_matches
     # Free the memory used by these boolean matrices
     del within_edges
     del time_matches
-    # del normal_matches
+    del normal_matches
 
     # Determine which rays result in collisions.
     first_collisions_rays_indices  = xp.logical_not(xp.logical_not(collisions_matrix).prod(axis=-1, dtype=xp.bool)).nonzero()[0]

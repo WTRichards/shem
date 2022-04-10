@@ -1,7 +1,8 @@
-try:
-    import cupy
-except:
-    pass
+import pickle
+import hashlib
+
+import numpy as np
+import cupy  as cp
 
 # Convert a dictionary into an object.
 # Makes config files so much nicer.
@@ -25,10 +26,10 @@ class DictObj:
 def cupy_unique_axis0(array):
     if len(array.shape) != 2:
         raise ValueError("Input array must be 2D.")
-    sortarr     = array[cupy.lexsort(array.T[::-1])]
-    mask        = cupy.empty(array.shape[0], dtype=cupy.bool_)
+    sortarr     = array[cp.lexsort(array.T[::-1])]
+    mask        = cp.empty(array.shape[0], dtype=cp.bool_)
     mask[0]     = True
-    mask[1:]    = cupy.any(sortarr[1:] != sortarr[:-1], axis=1)
+    mask[1:]    = cp.any(sortarr[1:] != sortarr[:-1], axis=1)
     return sortarr[mask]
 
 # Coordinates
@@ -36,7 +37,7 @@ R, THETA, PHI = 0, 1, 2
 X, Y, Z = 0, 1, 2
 
 # Small number. Can't be too small since we need to multiply vectors by it and their components might round to 0...
-DELTA = 5e-5
+DELTA = 1e-6
 
 # Hash functions
 
@@ -53,4 +54,12 @@ def hash_file(fname):
 def hash_obj(dictname):
     return hashlib.md5(pickle.dumps(dictname)).hexdigest()
 
+def get_xp(args):
+    if args.use_gpu:
+        return cp
+    else:
+        return np
+
+
+    
 

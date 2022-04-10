@@ -5,15 +5,20 @@ import cupy as cp
 from shem.definitions import *
 import shem.geometry
 
+##################
+# Ray Generation #
+##################
 
-# Determine the point source direction vector. We will trace rays in a 1 degree cone and convolve with various source distributions later.
 def direction(a, source_location, source_angle, coordinates, coordinate_indices):
+    '''
+    Determine the point source direction vector. We will trace rays in a 1 degree cone and convolve with various source distributions later.
+    '''
     xp = cp.get_array_module(a, source_location, coordinates, coordinate_indices)
     
     z = xp.array([0,0,1], dtype=xp.float32)
 
     # Start in polar coords with a conic source function
-    a_polar_i = xp.array([2*xp.pi*xp.random.rand(a.shape[0]), source_angle*xp.random.rand(a.shape[0])]).T
+    a_polar_i = xp.array([2*xp.pi*(xp.random.rand(a.shape[0]) - 0.5), source_angle*xp.random.rand(a.shape[0])]).T
 
     a[:,    R] = 1.0
     a[:,THETA] = a_polar_i[:,0]
@@ -33,8 +38,10 @@ def direction(a, source_location, source_angle, coordinates, coordinate_indices)
 
     return a, a_polar_i
 
-# Determine the point source origin vector.
 def origin(b, source_location, coordinates, coordinate_indices):
+    '''
+    Determine the point source origin vector.
+    '''
     xp = cp.get_array_module(b, source_location, coordinates, coordinate_indices)
     # Start in polar coords
     b[:] = shem.geometry.cart2polar(source_location)
@@ -52,100 +59,43 @@ def origin(b, source_location, coordinates, coordinate_indices):
 
     return b
 
-# A uniform source function. All rays are weighted equally.
-def uniform(theta, phi, **kwargs):
+####################
+# Source Functions #
+####################
+
+def uniform(theta, phi):
+    '''
+    A uniform source function. All rays are weighted equally.
+    '''
     xp = cp.get_array_module(theta, phi)
     return xp.ones_like(theta)
 
-# A Gaussian (in theta) source function.
-def gaussian(theta, phi, **kwargs):
+def cone(theta, phi, phi_max=np.radians(1)):
+    '''
+    A uniform cone function.
+    Accepts the arguments: phi_max
+    '''
     xp = cp.get_array_module(theta, phi)
-    mu = 0
-    sigma = kwargs['sigma']
-    return ( 1.0 / xp.sqrt(2*xp.pi*sigma**2) ) * xp.exp( - ( theta - mu )**2 / ( 2 * sigma**2 ) )
+    return xp.array(phi < phi_max, dtype=xp.float32)
 
-# Point source. Points straight to displacement.
-def delta(use_func, rays, displacement, source, source_radius, params):
-    xp = cp.get_array_module(use_func, rays, displacement, source)
-    a = rays[0]
-    b = rays[1]
+def gaussian(theta, phi, mu=0.0, sigma=1.0):
+    '''
+    A Gaussian (in phi) source function.
+    Accepts the arguments: mu, sigma.
+    '''
+    xp = cp.get_array_module(theta, phi)
+    return ( 1.0 / xp.sqrt(2*xp.pi*sigma**2) ) * xp.exp( - ( phi - mu )**2 / ( 2 * sigma**2 ) )
 
-    x = use_func[0]
-    y = use_func[1]
-    n = use_func[0].size
 
-    # All in same direction
-    # We need the -ve sign since the direction goes from source to mesh/origin.
-    a[use_func] = -shem.geometry.vector_normalise(source)
-    b[use_func] = displacement[x, y] + source
+def calc_source_function(theta, phi, settings):
+    xp = cp.get_array_module(theta, phi)
+    signal = xp.zeros_like(theta)
     
-    return
-
-# Point source. Uniform cone.
-def uniform_cone(use_func, rays, displacement, source, source_radius, params):
-    xp = cp.get_array_module(use_func, rays, displacement, source)
-    a = rays[0]
-    b = rays[1]
-
-    x = use_func[0]
-    y = use_func[1]
-    n = use_func[0].size
+    func = settings["source"]["function"]
     
-    source_polar = shem.geometry.cart2polar(source, radians=True)
-    
-    # Randomised values of theta and phi
-    theta = source_polar[..., THETA] + params.delta_theta*(xp.random.rand(n)-0.5)
-    phi   = source_polar[..., PHI]   + params.delta_phi*(xp.random.rand(n)-0.5)
+    # Sum the signals defined by each source function multiplied by their strengths.
+    for i, k in enumerate(func):
+        signal += func[k]["strength"] * func[k]["function"](theta, phi, **func[k]["kwargs"])
 
-    # Randomised direction vectors in polar coordinates
-    a_polar = xp.array([
-        xp.ones(n),
-        theta,
-        phi
-    ]).T
+    return signal
 
-    a[use_func] = -shem.geometry.polar2cart(a_polar, radians=True)
-    b[use_func] = displacement[x, y] + source
-
-    return
-
-
-SOURCE_FUNCTIONS = {
-        'delta'        : delta,
-        'uniform_cone' : uniform_cone,
-}
-
-
-def superposition(rays, displacement, source, source_radius, function_):
-    xp = cp.get_array_module(displacement, source)
-    
-    x_dim = rays.shape[1]
-    y_dim = rays.shape[2]
-    nparallel = rays.shape[3]
-
-    function = dict(((SOURCE_FUNCTIONS[k], v) for k, v in function_.items()))
-
-    # Determine what proportion of the rays should be sampled from each distribution.
-    strengths = xp.array([params.strength for params in function.values()])
-    
-    rel_strengths = strengths / xp.sum(strengths)
-    choice_criteria = xp.empty(strengths.size + 1)
-    choice_criteria[0]  = 0
-    choice_criteria[1:] = xp.cumsum(rel_strengths)
-    
-    # Choose each function with a weighting taken from rel_strengths.
-    function_choice = xp.random.rand(x_dim, y_dim, nparallel)
-
-    # WARNING: This code uses pass-by-reference rather than pass-by-value because it is more efficient and simple.
-    # That's usually good but it can make it easier to make mistakes.
-    # Functional programming is usually better to maintain and unit test (IMO).
-    for f, func in enumerate(function):
-        params = function[func]
-        # Indices of elements generated by the specified function
-        use_func = xp.nonzero(xp.logical_and(function_choice >= choice_criteria[f], function_choice < choice_criteria[f+1]))
-        # Pass by reference and assign to rays the appropriate values
-        func(use_func, rays, displacement, source, source_radius, params)
-
-    rays[0] = shem.geometry.vector_normalise(rays[0])
-
-    return rays
