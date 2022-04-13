@@ -2,7 +2,7 @@ import pytest
 
 import numpy as np
 import shem.default_config
-import shem.optimise
+import shem.optimisation
 
 if __name__ == '__main__':
     print("Running unit tests...")

@@ -9,7 +9,7 @@ from shem.definitions import *
 ###############################
 # Surface Collision Detection #
 ###############################
-def detect_surface_collisions(r, s):
+def detect_surface_collisions(r, s, match_normal=False):
     xp = cp.get_array_module(r)
 
     a = r[0]
@@ -35,12 +35,13 @@ def detect_surface_collisions(r, s):
 
     # Point each ray intersects with each plane.
     p_ = shem.ray.parameterise(a_, b_, t_)
+
     # The rays intersect at time greater than zero.
     time_matches = xp.squeeze(t_ > 0, -1)
-    # The ray hits the 'outside' of the surface instead of the inside.
-    normal_matches = xp.squeeze(shem.geometry.vector_dot(n_, a_) < 0, -1)
+    
     # The ray is within the three edges of the triangle, defined using the sign of the dot product.
     within_edges = (shem.geometry.vector_dot(n_, shem.geometry.vector_cross(e_, p_ - v_)) > 0).prod(axis=-1, dtype=xp.bool)
+    
     # Free the memory used by p
     del p_
 
@@ -49,7 +50,15 @@ def detect_surface_collisions(r, s):
     # Free the memory used by these boolean matrices
     del within_edges
     del time_matches
-    del normal_matches
+
+    if match_normal:
+        # The ray hits the 'outside' of the surface instead of the inside.
+        normal_matches = xp.squeeze(shem.geometry.vector_dot(n_, a_) < 0, -1)
+        collisions_matrix *= normal_matches
+        del normal_matches
+
+
+    # TODO: See if we can use np.ufunc.reduce with the where argument to make this less circumspect. It works but is confusing...
 
     # Determine which rays result in collisions.
     first_collisions_rays_indices  = xp.logical_not(xp.logical_not(collisions_matrix).prod(axis=-1, dtype=xp.bool)).nonzero()[0]
@@ -81,7 +90,7 @@ def detect_circle(rays, settings, coordinate_indices):
     '''
     xp = cp.get_array_module(rays, settings, coordinate_indices)
     
-    location = xp.array(settings["detector"]["location"])
+    detector_location = xp.array(settings["detector"]["location"])
     n = xp.array(settings["detector"]["normal"])
     r = settings["detector"]["radius"]
     coordinates = xp.array(settings["meta"]["coordinates"])
@@ -89,20 +98,16 @@ def detect_circle(rays, settings, coordinate_indices):
     a = rays[0]
     b = rays[1]
 
-    # Allocate memory and perform the necessary transformations to align the detector with the source.
-    d = xp.empty_like(b)
-    # Transform polar coordinates TODO: Check that this is the correct transformation - it isn't intuitive
-    location_polar = shem.geometry.cart2polar(location)
-    d[...,     R] = location_polar[    R]
-    d[..., THETA] = location_polar[THETA] + coordinates[2][coordinate_indices]
-    d[...,   PHI] = location_polar[  PHI] + coordinates[3][coordinate_indices]
+
+    # Transform polar coordinates TODO: Check that this is the correct transformation. We need to swap the sign on the polar angle to track the detector properly
+    angled_detector_locations = shem.geometry.polar2cart( shem.geometry.cart2polar(detector_location) + xp.array([xp.zeros(rays.shape[1]), -coordinates[2][coordinate_indices], coordinates[3][coordinate_indices]]).T )
+
     # Transform Cartesian coordinates
-    d = shem.geometry.polar2cart(d)
-    d[..., X] -= coordinates[0][coordinate_indices]
-    d[..., Y] -= coordinates[1][coordinate_indices]
+    d = angled_detector_locations + xp.array([coordinates[0][coordinate_indices], coordinates[1][coordinate_indices], xp.zeros(rays.shape[1])]).T
 
     # Find the time the ray intersects the plane of the circle.
     t = shem.ray.intersects_plane_time(a, b, n, d)
+    
     # Find the point at which the ray lies in that plane
     p = shem.ray.parameterise(a, b, t)
 
@@ -110,18 +115,19 @@ def detect_circle(rays, settings, coordinate_indices):
     time_matches = t > 0
     # We no longer need t, so free the memory
     del t
+
     # The ray hits the front face of the detector instead of the rear - not usually a problem.
-    # normal_matches = dot(n, a) < 0
+    #normal_matches = shem.geometry.vector_dot(n, a) < 0
+    
     # The ray is within a distance r of the center of the detector.
     within_edges = shem.geometry.vector_norm(p - d) < r
+    
     # We no longer need p, so free the memory
     del p
 
     # The truth vector for when all above conditions are satisfied
     detected = within_edges * time_matches # * normal_matches
 
-    # The indices of the rays detected.
-    #return xp.where(detected)[0]
     return detected
 
 def detect(rays, settings, coordinate_indices):

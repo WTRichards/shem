@@ -32,6 +32,8 @@ def cupy_unique_axis0(array):
     mask[1:]    = cp.any(sortarr[1:] != sortarr[:-1], axis=1)
     return sortarr[mask]
 
+
+
 # Coordinates
 R, THETA, PHI = 0, 1, 2
 X, Y, Z = 0, 1, 2

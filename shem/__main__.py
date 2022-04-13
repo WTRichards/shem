@@ -102,10 +102,8 @@ def check_configuration_and_run(args, func):
         shem.configuration.create_default(config_file)
         sys.exit()
     else:
-        db_file = os.path.join(args.work_dir, args.database)
-        if not os.path.isfile(db_file):
-            # Setup the database.
-            shem.database.db_setup(args)
+        # Setup the database.
+        shem.database.db_setup(args)
         # Run the function.
         func(args)
     return
@@ -120,7 +118,11 @@ def run_analysis_wrapper(args):
     '''
     Run the image analysis program.
     '''
-    print(args.database)
+    if not args.image:
+        raise ValueError("You have not provided an image to analyse.")
+    # We need a png image file
+    assert args.image.split('.')[-1] == "png"
+
     return check_configuration_and_run(args, shem.optimisation.run_analysis)
 
 def main():
@@ -131,7 +133,8 @@ def main():
     parser.add_argument("-l", "--list-devices", help="list available devices", action="store_true")
     parser.add_argument("-g", "--use-gpu",      help="use the gpu",            action="store_true")
     parser.add_argument("-w", "--work-dir",     help="working directory",      default="./work")
-    parser.add_argument("-d", "--database",     help="h5 database file",       default="simulation.db")
+    # We will generate the database from the hash of the config file.
+    #parser.add_argument("-d", "--database",     help="h5 database file",       default="simulation.db")
     parser.add_argument("-m", "--mesh",         help="mesh file as stl",       default="mesh.stl")
     
     # Either verbose or quiet, not both
@@ -150,6 +153,7 @@ def main():
     parser_ana = subparsers.add_parser('analyse', aliases=['ana'], help='analyse an image based on the settings and paramters template in the config file ')
     # Specify a config file to run the simulation and help with analysis
     parser_ana.add_argument("config", help="config file in Python", default="config.py")
+    parser_ana.add_argument("image", help="config file in Python")
     parser_ana.set_defaults(func=run_analysis_wrapper)
     
     # Mesh subparser

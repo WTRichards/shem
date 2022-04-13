@@ -121,6 +121,7 @@ def create_sphere_triangles(w, h, r, iterations=3):
         [ 0, 0, 1],
     ], dtype=np.float32)
     
+    # I have swapped the order of the face indices here around so the normals point in the correct direction.
     octahedron_faces = np.array([
         [0, 2, 1],
         [0, 3, 2],
@@ -130,7 +131,8 @@ def create_sphere_triangles(w, h, r, iterations=3):
         [5, 2, 3],
         [5, 3, 4],
         [5, 4, 1],
-    ])
+    ])[:, ::-1]
+
     
     # Initialise with the octohedron.
     sphere_triangles_ = octahedron_vertices[octahedron_faces]

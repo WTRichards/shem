@@ -19,7 +19,7 @@ y_polar_deg = np.array([1,90,90])
 z_polar_deg = np.array([1,0,0])
 
 def is_close(a, b):
-    return np.allclose(a, b, atol=DELTA)
+    return np.allclose(a, b, atol=5e-6)
 
 ############################
 # shem.geometry.polar2cart #

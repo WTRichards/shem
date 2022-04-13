@@ -9,93 +9,127 @@ import shem.geometry
 # Ray Generation #
 ##################
 
-def direction(a, source_location, source_angle, coordinates, coordinate_indices):
+# Create a vector using a probability distribution described by the polar angle phi relative to some axis z
+# See: https://math.stackexchange.com/questions/56784/generate-a-random-direction-within-a-cone
+def polar_distribution(a, pdist, **kwargs):
     '''
-    Determine the point source direction vector. We will trace rays in a 1 degree cone and convolve with various source distributions later.
+    Generate a vector using some polar angle probability distribution relative to the axis a.
+    You will probably want to reduce this.
     '''
-    xp = cp.get_array_module(a, source_location, coordinates, coordinate_indices)
-    
+    xp = cp.get_array_module(a)
+
+    # Sample uniformly in phi (azimuthal angle)
+    phi = xp.random.rand(*a.shape[:-1])*2*xp.pi
+
+    # Sample points in theta from the distribution in one dimension less than a i.e # of vectors.
+    theta = pdist(a[..., THETA], **kwargs)
+
+    # Calculate the z coordinate from theta.
+    z = xp.cos(theta)
+
+    # Calculate the outgoing vector relative to the z axis.
+    a[:] = xp.array([xp.cos(phi)*xp.sqrt(1-z*z), xp.sin(phi)*xp.sqrt(1-z*z), z]).T
+
+    return a
+
+
+def get_source_rays(rays_i, source_location, func, coordinates, coordinate_indices):
+    '''
+    Get the source rays for a particular source location, function and coordinates and write it to rays_i.
+    Return the deviation of the source ray from a perfect source.
+    '''
+    xp = cp.get_array_module(rays_i, coordinates, coordinate_indices)
     z = xp.array([0,0,1], dtype=xp.float32)
 
-    # Start in polar coords with a conic source function
-    a_polar_i = xp.array([2*xp.pi*(xp.random.rand(a.shape[0]) - 0.5), source_angle*xp.random.rand(a.shape[0])]).T
+    a = rays_i[0]
+    b = rays_i[1]
 
-    a[:,    R] = 1.0
-    a[:,THETA] = a_polar_i[:,0]
-    a[:,  PHI] = a_polar_i[:,1]
+    #############
+    # DIRECTION #
+    #############
 
-    # Convert back to Cartesians and rotate so the rays are directed from the source.
-    a[:] = shem.geometry.polar2cart(a)
-    a[:] = shem.geometry.rotate_frame(z, -source_location, a)
+    # TODO: Calculate source distribution here.
+    r_dim = a.shape[0]
+    choice = xp.random.rand(r_dim)
 
-    # Convert back to polars to adjust the source angle based on the angular displacement.
-    a[:] = shem.geometry.cart2polar(a)
-    a[:, THETA] += coordinates[2][coordinate_indices]
-    a[:,   PHI] -= coordinates[3][coordinate_indices]
-
-    # Convert back into Cartesians
-    a[:] = shem.geometry.polar2cart(a)
-
-    return a, a_polar_i
-
-def origin(b, source_location, coordinates, coordinate_indices):
-    '''
-    Determine the point source origin vector.
-    '''
-    xp = cp.get_array_module(b, source_location, coordinates, coordinate_indices)
-    # Start in polar coords
-    b[:] = shem.geometry.cart2polar(source_location)
-
-    # Apply shift in theta and phi
-    b[:, THETA] += coordinates[2][coordinate_indices]
-    b[:, PHI]   += coordinates[3][coordinate_indices]
-
-    # Convert back into cartesians
-    b[:] = shem.geometry.polar2cart(b)
+    # Calculate the source distribution by __picking__ from each function.
+    thresholds = xp.zeros(len(func)+1, dtype=xp.float32)
+    for i, k in enumerate(func):
+        thresholds[i+1] = func[k]["strength"]
+        thresholds = thresholds.cumsum() / thresholds.sum()
     
-    # Apply shift in x and y
-    b[:, X] -= coordinates[0][coordinate_indices]
-    b[:, Y] -= coordinates[1][coordinate_indices]
+    # Calculate the source distribution using the polar ray distribution.
+    for i, k in enumerate(func):
+        chosen_function = xp.logical_and(thresholds[i] < choice, choice < thresholds[i+1])
+        a[chosen_function] = polar_distribution(a[chosen_function], func[k]["function"],  **func[k]["kwargs"])
 
-    return b
+    
+    """
+    # All rays point along the axis, for now.
+    a[...,     R] = 1.0
+    a[..., THETA] = 0.0
+    a[...,   PHI] = 0.0
+    """
+
+    # Get the initial off-axis polar components
+    a_polar_i = shem.geometry.cart2polar(a)[..., 1:]
+    
+    # Generate the locations of the source at each coordinate index when displaced by (theta, phi).
+    angled_source_locations = shem.geometry.polar2cart( shem.geometry.cart2polar(source_location) + xp.array([xp.zeros(rays_i.shape[1]), coordinates[2][coordinate_indices], coordinates[3][coordinate_indices]]).T )
+    
+    # Rotate the angular distributions so they lie along the axis of a perfect source.
+    a[:] = shem.geometry.rotate_frame(z, -angled_source_locations, a)
+    
+
+    # Normalise the directions
+    a[:] = shem.geometry.vector_normalise(a)
+
+    ##########
+    # ORIGIN #
+    ##########
+    
+    # Add the displacements in x and y.
+    #b[:] = angled_source_locations + xp.array([coordinates[0][coordinate_indices], coordinates[1][coordinate_indices], xp.zeros(rays_i.shape[1])]).T
+    b[..., :] = source_location + xp.array([coordinates[0][coordinate_indices], coordinates[1][coordinate_indices], xp.zeros(rays_i.shape[1])]).T
+
+    # Just return the initial deviation from a perfect ray.
+    return a_polar_i
+
+
 
 ####################
 # Source Functions #
 ####################
 
-def uniform(theta, phi):
+def delta(theta):
     '''
-    A uniform source function. All rays are weighted equally.
+    A perfect source function.
     '''
-    xp = cp.get_array_module(theta, phi)
-    return xp.ones_like(theta)
+    xp = cp.get_array_module(theta)
+    return xp.zeros_like(theta)
 
-def cone(theta, phi, phi_max=np.radians(1)):
+def uniform_cone(theta, theta_max=np.radians(0.5)):
     '''
-    A uniform cone function.
-    Accepts the arguments: phi_max
+    A uniform cone function. Returns uniformly random values of theta within a cone
+    Accepts the arguments: theta_max (defaults to 0.5 degrees)
     '''
-    xp = cp.get_array_module(theta, phi)
-    return xp.array(phi < phi_max, dtype=xp.float32)
+    xp = cp.get_array_module(theta)
 
-def gaussian(theta, phi, mu=0.0, sigma=1.0):
+    # Minimum value of z
+    z_min = xp.cos(theta_max)
+    
+    # Uniform choice in range [1, z_min]
+    z = (1-z_min)*xp.random.rand(*theta.shape) + z_min
+    
+    # Need to return arccos for the wrapper function.
+    return xp.arccos(z)
+
+def gaussian(theta, mu=0.0, sigma=1.0):
     '''
-    A Gaussian (in phi) source function.
+    A Gaussian (in theta) source function.
+    Note that this is not integrated over phi - it is the intensity at a point at an angle theta in the cone.
     Accepts the arguments: mu, sigma.
     '''
-    xp = cp.get_array_module(theta, phi)
-    return ( 1.0 / xp.sqrt(2*xp.pi*sigma**2) ) * xp.exp( - ( phi - mu )**2 / ( 2 * sigma**2 ) )
-
-
-def calc_source_function(theta, phi, settings):
-    xp = cp.get_array_module(theta, phi)
-    signal = xp.zeros_like(theta)
-    
-    func = settings["source"]["function"]
-    
-    # Sum the signals defined by each source function multiplied by their strengths.
-    for i, k in enumerate(func):
-        signal += func[k]["strength"] * func[k]["function"](theta, phi, **func[k]["kwargs"])
-
-    return signal
+    xp = cp.get_array_module(theta)
+    return sigma*xp.random.randn(*theta.shape) + mu
 

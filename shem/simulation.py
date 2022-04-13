@@ -2,6 +2,7 @@ import os, sys
 import time
 
 import trimesh
+import tqdm
 
 import numpy as np
 import cupy  as cp
@@ -24,8 +25,7 @@ def trace_rays(
         surface,               # Surface object
         rt_table = None,       # Table in which to save the ray tracing results
         max_batch_size = 1024, # Maximum number of rays to trace per batch.
-        iters = 1,             # Number of times to run through the main loop. Useful for calibration.
-        max_scatters = None,   # Override max_scatters in settings. Useful for debugging
+        n_batches = 8,         # Number of batches for testing
         ):
     '''
     Trace the rays which scatter off the sample using the given settings and store the result in a database.
@@ -36,11 +36,10 @@ def trace_rays(
     # Get variables from settings for convenience and move them to the GPU, if necessary
     coordinates         = xp.array(settings[      "meta"][ "coordinates"])
     max_scans           =          settings[      "meta"][   "max_scans"]
-    source_angle        =          settings[      "meta"]["source_angle"]
     source_location     = xp.array(settings[    "source"][    "location"])
+    source_function     =          settings[    "source"][    "function"]
     scattering_function =          settings["scattering"][    "function"]
-    if max_scatters is None:
-        max_scatters    =          settings[      "meta"]["max_scatters"]
+    max_scatters        =          settings[      "meta"]["max_scatters"]
 
     # Calculate the maximum number of rays we are allowed to trace.
     max_rays_traced = max_scans * coordinates.shape[1]
@@ -50,6 +49,7 @@ def trace_rays(
     # TODO: Save the RNG state as an attribute in the table so we can stop and resume the simulation.
     # When we wish to continue, we can load the RNG state here.
     if rt_table is not None:
+        name = rt_table.name
         if   rt_table.nrows == max_rays_traced:
             print("Ray tracing table: " + rt_table.name + " is complete. Continuing...")
             return
@@ -57,14 +57,26 @@ def trace_rays(
             print("Ray tracing table: " + rt_table.name + " is only partially complete. Purging the table...")
             # Delete all rows
             rt_table.remove_rows(0)
-    
+
+        # Track how many rays we have traced.
+        rays_traced = rt_table.nrows
+
+        # Calculate how many batches will we need to run through the entire table.
+        n_batches = (max_rays_traced - rays_traced) // max_batch_size
+
+        # Calculate the size of the final batch.
+        last_batch_size = (max_rays_traced - rays_traced) % max_batch_size
+    else:
+        # Hardcode the batch size for optimisation.
+        name = "Testing"
+        rays_traced = 0
+        max_rays_traced = n_batches * max_batch_size
+        last_batch_size = 0
+
+
     # Seed the random data. We do this every time this function is called to ensure consistency every time this program is run.
     np.random.seed(0)
     xp.random.seed(0)
-
-    # Track how many rays we have traced.
-    rays_traced = rt_table.nrows
-
 
     # Allocate memory for the initial rays.
     # We do this once at the start for performance.
@@ -80,10 +92,13 @@ def trace_rays(
     ##################################################################################################################
 
     # We will use a function to save the ray tracing data to the table to avoid reusing code for different batch sizes.
-    def save_results(args, batch_size, coordinate_indices, a_polar_i, rays_f, n_scat):
+    def save_results(args, coordinate_indices, a_polar_i, rays_f, n_scat):
         '''
         Save the results of a batch.
         '''
+        
+        batch_size = coordinate_indices.size
+
         # Calculate the properties of the final rays
         a_polar_f = shem.geometry.cart2polar(rays_f[0])[..., 1:]
         b_f       =                          rays_f[1]
@@ -109,145 +124,96 @@ def trace_rays(
         rt_table.flush()
         return
 
-    def set_initial_rays(rays_i, coordinate_indices):
-        '''
-        Set the intial rays based on the indices of the coordinates of interest.
-        Returns the deviation in polar coordinates of a from a 'perfect' source.
-        '''
-        a = rays_i[0]
-        b = rays_i[1]
-        # Determine the point source direction vector.
-        # We will trace rays in a cone defined by source_angle and convolve with various source distributions later.
-        # We also want the angular distribution relative to the source vector for analysis later, so return that too. 
-        a[:], a_polar_i = shem.source.direction(a, source_location, source_angle, coordinates, coordinate_indices)
-        # Determine the point source origin vector.
-        b[:] = shem.source.origin(              b, source_location,               coordinates, coordinate_indices)
-
-        return a_polar_i
-
-    def progress_information(rays_traced):
-        if args.verbose:
-            print("total rays traced, {:} total seconds elapsed...".format(rays_traced, time.time()-start_time), end='\r')
-        return
-
-
     ##################################################################################################################
 
-
-    ###################
-    # Iterations Loop #
-    ###################
-
-    # TODO: Create a table which is used for testing and benchmarking
-    # Run for a certain number of iterations, looping over the rays then exit.
-    if rt_table is None:
-        for i in range(iters):
-            # Determine the coordinate indices of the rays we will be tracing.
-            coordinate_indices = xp.arange(rays_traced, rays_traced+max_batch_size) % coordinates.shape[1]
-
-            # Set the initial values of the rays and get the polar coordinate displacements from a perfect source.
-            a_polar_i = set_initial_rays(rays_i, coordinate_indices)
-
-            # Scatter the rays off the surface
-            rays_f, n_scat = shem.scattering.scatter(rays_i, surface, scattering_function, max_scatters)
-
-            # Keep track of the number of rays we have traced.
-            rays_traced += max_batch_size
-            progress_information(rays_traced)
-        return
-
-
     #############
-    # Scan Loop #
+    # Main Loop #
     #############
 
-    # Calculate how many batches will we need to run through the entire table.
-    n_batches = max_rays_traced // max_batch_size
-    # Calculate the size of the final batch.
-    last_batch_size = max_rays_traced % max_batch_size
-
-    print(n_batches, last_batch_size)
-
-    # Iterate over every batch
-    for batch in range(n_batches):
-        # Determine the coordinate indices of the rays we will be tracing.
-        coordinate_indices = xp.arange(rays_traced, rays_traced+max_batch_size) % coordinates.shape[1]
-        
-        # Set the initial values of the rays and get the polar coordinate displacements from a perfect source.
-        a_polar_i = set_initial_rays(rays_i, coordinate_indices)
-
-        # Scatter the rays off the surface
-        rays_f, n_scat = shem.scattering.scatter(rays_i, surface, scattering_function, max_scatters)
-
-        # Save our results to the database.
-        save_results(args, max_batch_size, coordinate_indices, a_polar_i, rays_f, n_scat)
-        
-        # Keep track of the number of rays we have traced.
-        rays_traced += max_batch_size
-        print(rays_traced)
-        progress_information(rays_traced)
-
-
-    # If necessary, run the final batch with a different batch size
-    if last_batch_size != 0:
-        # Reallocate memory for rays_i for a smaller batch. This is not strictly necessary but is generally sensible.
-        rays_i = xp.empty((2, last_batch_size, 3), dtype=xp.float32)
-
-        # Determine the coordinate indices of the rays we will be tracing.
-        coordinate_indices = xp.arange(rays_traced, rays_traced+last_batch_size) % coordinates.shape[1]
-        
-        # Set the initial values of the rays and get the polar coordinate displacements from a perfect source.
-        a_polar_i = set_initial_rays(rays_i, coordinate_indices)
-
-        # Scatter the rays off the surface
-        rays_f, n_scat = shem.scattering.scatter(rays_i, surface, scattering_function, max_scatters)
-
-        # Save our results to the database.
-        save_results(args, last_batch_size, coordinate_indices, a_polar_i, rays_f, n_scat)
-        
-        # Keep track of the number of rays we have traced.
-        rays_traced = max_rays_traced
-        progress_information(rays_traced)
-
-
-    # Inform us about the success conditions
-    if args.verbose:
-        if rt_table is None:
-            print("Successfully completed " + str(iters) + " iterations...")
+    # Scatter each ray batch
+    tqdm_iterator = tqdm.trange(n_batches+1, leave=True)
+    for batch in tqdm_iterator:
+        tqdm_iterator.set_description("{} : {:,} total rays traced, {:,} scans complete".format(name, rays_traced, rays_traced // coordinates.shape[1]))
+        # Check whether we are on the final batch.
+        if batch == n_batches:
+            # Exit the loop if there is no final batch
+            if last_batch_size == 0:
+                continue
+            batch_range = [rays_traced, rays_traced+last_batch_size]
+            # Reallocate memory
+            rays_i = xp.empty((2, last_batch_size, 3), dtype=xp.float32)
         else:
-            print("Successfully completed " + str(max_scans) + " scans...")
+            batch_range = [rays_traced, rays_traced+max_batch_size]
 
-    # Return the resultant rays of the scattering. Useful for debugging
-    return rays_f
+        # Determine the coordinate indices of the rays we will be tracing.
+        coordinate_indices = xp.arange(*batch_range) % coordinates.shape[1]
+        
+        # Set the initial values of the rays and get the polar coordinate displacements from a perfect source.
+        #a_polar_i = set_initial_rays(rays_i, coordinate_indices)
+        a_polar_i = shem.source.get_source_rays(rays_i, source_location, source_function, coordinates, coordinate_indices)
+
+        # Scatter the rays off the surface
+        rays_f, n_scat = shem.scattering.scatter(rays_i, surface, scattering_function, max_scatters)
+
+        # Save our results to the database.
+        if rt_table is not None:
+            save_results(args, coordinate_indices, a_polar_i, rays_f, n_scat)
+        
+        # Keep track of the number of rays traced.
+        rays_traced += batch_range[1] - batch_range[0]
+
+    return
 
 def detect_rays(
         args,          # Command line arguments
         settings,      # Simulation settings
         rt_table,      # Table from which to read the ray tracing results
         dt_arr = None, # Array in which to save the detected rays
-        max_rays_batch = 1024, # Maximum number of rays to detect per batch.
+        max_batch_size = 1024, # Maximum number of rays to detect per batch.
         ):
     '''
     Detect the rays within the ray tracing database.
     '''
-    # Seed the random data.
-    np.random.seed(0)
-    cp.random.seed(0)
+    
     xp = get_xp(args)
 
-    # We cannot detect more rays than the length of the corresponding table.
-    max_rays_detected = len(rt_table)
-
+    # We cannot detect more rays than the length of the corresponding table. This is simpler than getting the result from settings.
+    max_rays_detected = rt_table.nrows
+    
+    # Check if this table is array is complete. If it is not, set it all to False.
+    # If we wanted to have it be able to start from an arbitrary point, we would need to find the first True value.
+    if dt_arr is not None:
+        if   dt_arr.attrs.complete:
+            print("Ray detection array: " + dt_arr.name + " is complete. Continuing...")
+            return
+        elif dt_arr[:].any():
+            print("Ray tracing table: " + rt_table.name + " is only partially complete. Purging the table...")
+            # Set all elements to False
+            dt_arr[:] = False
+    
+    # Find the index of the last ray detected.
+    rays_detected = np.where(dt_arr)[0]
+    if rays_detected.size == 0:
+        rays_detected = 0
+    
     # How many batches will we need to run through the entire table
-    n_batches = (max_rays_detected // max_rays_batch) + 1
-    for batch in range(n_batches):
-        # Indices of interest
-        batch_range = [batch*max_rays_batch, (batch+1)*max_rays_batch]
-        
-        # If the upper index is longer than the table, reduce it.
-        if batch_range[1] > max_rays_detected:
-            batch_range[1] = max_rays_detected
+    n_batches = (max_rays_detected - rays_detected) // max_batch_size
+    
+    # Calculate the size of the final batch.
+    last_batch_size = (max_rays_detected - rays_detected) % max_batch_size
 
+    # Perform the ray detection on each batch
+    tqdm_iterator = tqdm.trange(n_batches+1, desc=dt_arr.name + " : detecting rays", leave=True)
+    for batch in tqdm_iterator:
+        # Check whether we are on the final batch.
+        if batch == n_batches:
+            # Exit the loop if there is no final batch
+            if last_batch_size == 0:
+                break
+            batch_range = [rays_detected, rays_detected+last_batch_size]
+        else:
+            batch_range = [rays_detected, rays_detected+ max_batch_size]
+        
         # Get the rays from the table and convert back to Cartesians.
         rays = xp.stack((
             shem.geometry.unit_vector(xp.array(rt_table.read(*batch_range, field="a_polar_f"))),
@@ -266,81 +232,80 @@ def detect_rays(
 
         # Append the indices we have detected.
         dt_arr[batch_range[0]:batch_range[1]] = is_detected
+        
+        # Keep track of the number of rays we have detected.
+        rays_detected += batch_range[1] - batch_range[0]
 
-        # Save the changes
-        dt_arr.flush()
-
+    # Mark this array as completed
     dt_arr.attrs.complete = True
-    dt_arr.flush()
+
     return
 
-def source_convolve_rays(
+def sum_detected_rays(
         args,           # Command line arguments
         settings,       # Simulation settings
         rt_table,       # Table from which to read the ray tracing results
         dt_arr,         # Array from which to read the detected rays
         sig_arr = None, # Array in which to save the signal at each coordinate
-        max_rays_batch = 1024, # Maximum number of rays to convolve and sum per batch.
+        max_batch_size = 1024, # Maximum number of rays to convolve and sum per batch.
         ):
     '''
     Calculate the signal experienced at each coordinate due to the rays detected.
+    This does not need to be on the GPU.
     '''
-    # Seed the random data.
-    np.random.seed(0)
-    cp.random.seed(0)
-    xp = get_xp(args)
-
-    source_function = settings["source"]["function"]
-    source_angle    = settings[  "meta"]["source_angle"]
-   
-    # Determine the indices of the rays detected.
-    detected_rays = np.where(dt_arr)
-
     # Check if we have already completed the signal calculation procedure on this table.
+    # There is no easy way to tell from the table itself, so we use an attribute.
     if sig_arr.attrs.complete:
-        print("This signal calculation procedure has already been completed. Continuing...")
+        print("Signal summation array: " + sig_arr.name + " is complete. Continuing...")
         return
     else:
-        max_rays_signal = len(detected_rays)
-        # Create the array which will store the signal we compute.
-        signal = xp.zeros(len(sig_arr), dtype=xp.float32)
+        # Erase the signal table.
+        sig_arr[:] = 0
+
+    # Create the array which will store the signal we compute.
+    signal = np.zeros(sig_arr.nrows, dtype=np.float32)
+    
+    # Determine the indices of the rays detected.
+    detected_rays = np.where(dt_arr)[0]
+    
+    # How many indices we need to iterate over.
+    max_rays_signal = detected_rays.shape[0]
 
     # How many batches will we need to run through the entire table
-    n_batches = (max_rays_signal // max_rays_batch) + 1
-    for batch in range(n_batches):
-        # Indices of interest
-        batch_range = [batch*max_rays_batch, (batch+1)*max_rays_batch]
-        
-        # If the upper index is longer than the table, reduce it.
-        if batch_range[1] > max_rays_signal:
-            batch_range[1] = max_rays_signal
+    n_batches = max_rays_signal // max_batch_size
+    last_batch_size = max_rays_signal % max_batch_size
+    
+    # Keep track of the number of rays we have summed.
+    rays_summed = 0
 
+    # Perform the source convolution on each batch.
+    tqdm_iterator = tqdm.trange(n_batches+1, desc=sig_arr.name + " summing detected rays", leave=True)
+    for batch in tqdm_iterator:
+        # Check whether we are on the final batch.
+        if batch == n_batches:
+            # Exit the loop if there is no final batch
+            if last_batch_size == 0:
+                break
+            batch_range = [rays_summed, rays_summed+last_batch_size]
+            rays_summed += last_batch_size
+        else:
+            batch_range = [rays_summed, rays_summed+ max_batch_size]
+            rays_summed += max_batch_size
+        
         # Get the indices of the detected rays
         detected_ray_coordinate_indices = detected_rays[batch_range[0]:batch_range[1]]
-        # Get the coordinate indices of each detected ray
+
+        # Get the coordinate indices of each detected ray.
         coordinate_indices = rt_table.read_coordinates(detected_ray_coordinate_indices, field="coordinate_index")
-        # Get the source ray displacement relative to a 'perfect' ray in spherical polars with the perfect ray as the z axis.
-        theta, phi = xp.array(rt_table.read_coordinates(detected_ray_coordinate_indices, field="a_polar_i")).T
-        
-        # Calculate the signal each ray in this batch will produce. If source_angle is 0 there is no point. Each ray detected has the same weight.
-        if source_angle == 0:
-            batch_signal = xp.ones_like(theta)
-        else:
-            batch_signal = shem.source.calc_source_function(theta, phi, settings)
 
         # Add the batch signal to the total signal
-        signal[detected_ray_coordinate_indices] += batch_signal
+        np.add.at(signal, coordinate_indices, 1)
 
-    # Load the result from the GPU
-    if args.use_gpu:
-        signal = signal.get()
-
-    # Save the signal we have detected to the array.
+    # Write the resulting signal to the database.
     sig_arr[:] = signal
 
     # The array is complete
     sig_arr.attrs.complete = True
-    sig_arr.flush()
     return
 
 
@@ -368,7 +333,7 @@ def run_simulation(args, settings, db_tuple, surface, max_batch_sizes):
     detect_rays(args, settings, rt_table, dt_arr, max_batch_size_dt)
 
     # Calculate the signal from each of the detected rays.
-    source_convolve_rays(args, settings, rt_table, dt_arr, sig_arr, max_batch_size_sig)
+    sum_detected_rays(args, settings, rt_table, dt_arr, sig_arr, max_batch_size_sig)
     
     return
 
@@ -376,11 +341,11 @@ def run_simulation_default(args):
     '''
     Run the default simulation using settings.
     '''
-    # No parameters supplied.
-    parameters = None
-
     # Get the settings from the config file
     settings = shem.configuration.get_settings(args)
+    
+    # Get the default parameters from settings.
+    parameters = shem.configuration.get_setting_values(settings)
     
     # Load the surface object into memory
     surface = shem.surface.load_surface(args, settings)
@@ -405,32 +370,3 @@ def run_simulation_default(args):
 
     return
 
-#############
-# Debugging #
-#############
-
-def trace_single_ray(args):
-    '''
-    Trace a single ray and display the result in a 3D interactive graphic.
-    Useful for debugging
-    '''
-    
-    # No parameters supplied.
-    parameters = None
-
-    # Get the settings from the config file
-    settings = shem.configuration.get_settings(args)
-    
-    # Load the surface object into memory
-    surface = shem.surface.load_surface(args, settings)
-
-    # Apply any modifications to the surface
-    surface = shem.surface.modify_surface(surface, settings)
-
-    # We only trace a single ray
-    max_batch_size_rt = 1
-    
-    # Trace
-    trace_rays(args, settings, surface, rt_table, max_batch_size_rt)
-
-    return

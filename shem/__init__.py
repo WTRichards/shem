@@ -7,6 +7,7 @@ import shem.display
 import shem.geometry
 import shem.mesh
 import shem.optimisation
+import shem.probability
 import shem.ray
 import shem.scattering
 import shem.simulation

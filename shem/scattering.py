@@ -10,7 +10,7 @@ from   shem.definitions import *
 # Scattering Functions #
 ########################
 
-def perfect_specular(a, f, s):
+def specular_perfect(a, f, s):
     '''
     A scattering function which describes perfect specular scattering
     '''
@@ -24,7 +24,15 @@ def perfect_specular(a, f, s):
 
     return out
 
-def perfect_diffuse(a, f, s):
+def specular_inelastic(a, f, s, mu=0.0, sigma=1.0):
+    '''
+    Add a normally distributed 'kick' to the specular ray in the direction of the normal.
+    '''
+    xp = cp.get_array_module(a, f, s.vertices)
+    n = s.normals[f]
+    return specular_perfect(a, f, s) + n*xp.expand_dims(xp.random.rand(n.shape[0]), -1)
+
+def diffuse_perfect(a, f, s):
     '''
     A scattering function which describes perfect diffuse scattering
     '''
@@ -34,20 +42,79 @@ def perfect_diffuse(a, f, s):
     n = s.normals[f]
     
     # Generate random directions
-    directions = xp.random.rand(n.shape[0], 2)
-    directions[:, 0] *= 2*xp.pi
-    directions[:, 1] *= xp.pi
-    
-    # Convert the random directions into vectors.
-    out = shem.geometry.unit_vector(directions)
+    directions = shem.geometry.vector_normalise(xp.random.randn(*n.shape))
     
     # If the ray is going into the surface, flip it so it goes out of it.
-    out *= xp.expand_dims(xp.sign(shem.geometry.vector_dot(out, n)), -1)
+    directions *= xp.expand_dims(xp.sign(shem.geometry.vector_dot(directions, n)), -1)
 
     # The rays point out of the surface.
-    assert (shem.geometry.vector_dot(out, n) > 0).all()
+    assert (shem.geometry.vector_dot(directions, n) > 0).all()
     
-    return out
+    return directions
+
+def diffuse_specular_superposition(a, f, s, r=0.9):
+    '''
+    A linear superposition of specular and diffuse with some ratio r of specular to diffuse.
+    '''
+    xp = cp.get_array_module(a, f, s.vertices)
+    return shem.geometry.vector_normalise(r*specular_perfect(a,f,s) + (1-r)*diffuse_perfect(a,f,s))
+
+
+def diffraction_2d_simple(a, f, s, sigma_envelope=1.0, sigma_peaks=0.1):
+    '''
+    Calculate the 2D diffraction pattern for a particular surface.
+    We assume the surface properties encodes two reciprocal lattice vectors.
+    When the helium atom collides with the surface, its momentum change is quantised.
+    Here, we will assume the probability of scattering by exchanging a phonon momentum k is normallly distributed.
+    '''
+    xp = cp.get_array_module(a, f, s.vertices)
+
+    r_dim = a.shape[0]
+
+    # Get the normals
+    n = s.normals[f]
+    
+    # Get properties
+    b1_x = s.get_property("b1_x")
+    b1_y = s.get_property("b1_y")
+    b1_z = s.get_property("b1_z")
+    b2_x = s.get_property("b2_x")
+    b2_y = s.get_property("b2_y")
+    b2_z = s.get_property("b2_z")
+    
+    # Convert to arrays
+    b1 = xp.array([b1_x, b1_y, b1_z]).T # This works if the properties are scalars, too.
+    b2 = xp.array([b2_x, b2_y, b2_z]).T # This works if the properties are scalars, too.
+    
+    """
+    # Guess the final momentum change
+    envelope_guess = sigma_envelope * xp.random.randn(a.shape)
+
+    # Decompose in the basis of the two lattice vectors and the normal
+    M = xp.array([b1, b2, n]).T # Basis vector matrix
+    # Components in this vector space
+    L, M, _ = xp.linalg.solve(M, envelope_guess)
+
+    # Quantise the 
+    """
+
+    # Sample the distribution across points up to max_order (in a square)
+    max_order = 12
+
+    # Determine the most likely momentum change using a Boltzman factor, scaled by sigma_envelope.
+    momentum = lambda L, M: xp.expand_dims(L, -1)*b1 + xp.expand_dims(M, -1)*b2
+    boltzmann_factor = lambda L, M: xp.exp( - ( shem.geometry.vector_norm(momentum(L, M)) / sigma_envelope )**2 / 2 )
+    
+    # Get the reciprocal lattice constants as integers
+    L, M = shem.probability.pdist_sample(boltzmann_factor, n=r_dim, bounds=np.array([[-max_order, -max_order],[max_order, max_order]]), n_points=np.array([2*max_order + 1, 2*max_order + 1]), use_gpu=(xp is cp))
+
+    # Add some uncertainty to the peaks
+    L += sigma_peaks*xp.random.randn(*L.shape)
+    M += sigma_peaks*xp.random.randn(*M.shape)
+
+    # Add the momentum to the specular vector and a small random vector scaled by sigma_peaks, then normalise
+    return shem.geometry.vector_normalise( specular_perfect(a, f, s) + xp.expand_dims(L, -1)*b1 + xp.expand_dims(M, -1)*b2 )
+
 
 def calc_scattering_function(a, faces, surface, func):
     '''
@@ -56,14 +123,15 @@ def calc_scattering_function(a, faces, surface, func):
     xp = cp.get_array_module(a, surface.vertices, faces)
 
     r_dim = a.shape[0]
-    out = xp.empty_like(a)
+    out = xp.zeros_like(a)
     choice = xp.random.rand(r_dim)
 
+    # Calculate the final directions by __picking__ from each scattering function.
     thresholds = xp.zeros(len(func)+1, dtype=xp.float32)
     for i, k in enumerate(func):
         thresholds[i+1] = func[k]["strength"]
     thresholds = thresholds.cumsum() / thresholds.sum()
-
+    
     # Choose whether each ray is reflected in a specular or diffuse manner.
     for i, k in enumerate(func):
         chosen_function = xp.logical_and(thresholds[i] < choice, choice < thresholds[i+1])
@@ -72,6 +140,7 @@ def calc_scattering_function(a, faces, surface, func):
         out[chosen_function] = func[k]["function"](incoming_vectors, faces_hit, surface, **func[k]["kwargs"])
 
     return out
+
 
 ######################
 # Surface Scattering #

@@ -19,9 +19,9 @@ def polar2cart(polar_, radians=True):
         polar[...,   PHI] = xp.radians(polar[...,   PHI])
     
     # Convert to Cartesians.
-    cart[..., X] = polar[..., R] * xp.sin(polar[..., PHI]) * xp.cos(polar[..., THETA])
-    cart[..., Y] = polar[..., R] * xp.sin(polar[..., PHI]) * xp.sin(polar[..., THETA])
-    cart[..., Z] = polar[..., R] * xp.cos(polar[..., PHI])
+    cart[..., X] = polar[..., R] * xp.sin(polar[..., THETA]) * xp.cos(polar[..., PHI])
+    cart[..., Y] = polar[..., R] * xp.sin(polar[..., THETA]) * xp.sin(polar[..., PHI])
+    cart[..., Z] = polar[..., R] * xp.cos(polar[..., THETA])
 
 
     return cart
@@ -36,8 +36,8 @@ def cart2polar(cart_, radians=True):
     polar = xp.empty_like(cart)
 
     polar[...,     R] = xp.linalg.norm(cart, axis=-1)
-    polar[..., THETA] = xp.arctan2(cart[..., Y], cart[..., X])
-    polar[...,   PHI] = xp.arccos( cart[..., Z] / polar[..., R])
+    polar[..., THETA] = xp.arccos( cart[..., Z] / polar[..., R])
+    polar[...,   PHI] = xp.arctan2(cart[..., Y], cart[..., X])
 
     if not radians:
         polar[..., THETA] = xp.degrees(polar[..., THETA])
@@ -85,17 +85,40 @@ def rotate_frame(v_i, v_f, arr):
     if xp.array_equal(v_i, v_f):
         return arr
 
-    # Angle between the two vectors.
-    theta = xp.arccos(vector_dot(v_i, v_f) / (vector_norm(v_i) * vector_norm(v_f)) ) 
-    c = xp.cos(theta)
-    s = xp.sin(theta)
+    if v_i.shape[-1] != 3:
+        raise ValueError("v_i must be a list of vectors")
+    if v_f.shape[-1] != 3:
+        raise ValueError("v_f must be a list of vectors")
+
+    # Add a dimension for broadcasting.
+    v_i = v_i.reshape(-1, 3)
+    v_f = v_f.reshape(-1, 3)
+
+    # Angle between the vectors.
+    theta = xp.arccos(vector_dot(v_i, v_f) / (vector_norm(v_i) * vector_norm(v_f)) )
+
+    # Cos and Sin all have shape (n, 1, 1)
+    c = xp.expand_dims(xp.cos(theta), (-1,-2))
+    s = xp.expand_dims(xp.sin(theta), (-1,-2))
     
     # Cross product defining an orthonormal axis
-    u = vector_normalise(xp.cross(v_i, v_f))
-    u_x, u_y, u_z = u[X].item(), u[Y].item(), u[Z].item()
+    u = vector_normalise(vector_cross(v_i, v_f))
+
+    # Cartesian components shape (r_dim)
+    u_x, u_y, u_z = u[..., X], u[..., Y], u[..., Z]
 
     # Define the rotation matrix which rotates v_i onto v_f.
     # If this were written explicitly it would look horrid.
+    z = xp.zeros_like(u_x)
+    R = c*xp.identity(3) + (1-c)*xp.einsum('nj,nk->njk', u, u) + s*xp.array([
+        [   z, -u_z, +u_y],
+        [+u_z,    z, -u_x],
+        [-u_y, +u_x,    z],
+    ], dtype=xp.float32).transpose(2,0,1)
+   
+    # Use einstein summation rather than built-in matrix multiplication for clarity.
+    return xp.einsum('nij,nj->ni', R, arr)
+    """
     R = c*xp.identity(3) + (1-c)*xp.outer(u, u) + s*xp.array([
         [   0, -u_z, +u_y],
         [+u_z,    0, -u_x],
@@ -103,7 +126,8 @@ def rotate_frame(v_i, v_f, arr):
     ], dtype=xp.float32)
 
     # Use einstein summation rather than built-in matrix multiplication for clarity.
-    return xp.einsum('ij,kj->ki', R, arr)
+    return xp.einsum('ij,nj->ni', R, arr)
+    """
 
 # Get the angle between vectors.
 def vector_angle(a, b, radians=True):
