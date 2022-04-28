@@ -5,6 +5,8 @@ import numpy as np
 # Set the print threshold to for stdout output
 np.set_printoptions(threshold=32*32)
 
+import cv2
+
 import tqdm
 
 import shem.database
@@ -126,22 +128,19 @@ def get_data_count(settings, parameters, db, key, coordinate_indices=np.array([]
     # Classical signal
     if key == "signal":
         data = db.root.sig[name][coordinate_indices]
-        data = np.unique(data, return_counts=True)
 
     # Average scattering at each coordinate index
     if key == "number of times scattered":
-        print(indices)
         data = db.root.rt[name].col("n_scat")[indices]
-        data = np.unique(data, return_counts=True)
     
     # Average scattering at each coordinate index __for detected rays__
     if key == "number of times scattered (detected)":
         # Find the detected rays
         detected = db.root.dt[name]
         data = db.root.rt[name].col("n_scat")[indices][detected]
-        data = np.unique(data, return_counts=True)
 
-    return data
+    return np.unique(data, return_counts=True)
+
 #####################
 # Output Categories #
 #####################
@@ -156,7 +155,8 @@ def xy_intensity(args, settings, parameters, db, title):
     x, y, theta, phi = 0, 1, 2, 3
     default_spec = {
         "flip"    : True,           # Flip the y axis. This is necessary if we want to see the image we expect for the regular xy plot (y axis not inverted). See the camera obscura.
-        "FT"      : False,           # Fourier transform the image.
+        "FT"      : False,          # Fourier transform the image.
+        "denoise" : False,          # Apply a denoising filter
         "figure"  : False,          # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
         "stdout"  : False,          # Output a the values to stdout scaled to 0, 1 or 2 and scaled down to a 32 x 32 grid. Defaults to False.
         "indices" : np.array([]),   # Which subset of the indices we have simulated we will be plotting.
@@ -167,14 +167,19 @@ def xy_intensity(args, settings, parameters, db, title):
         "z"       : None,           # We specify which field from the many tables we wish to plot. Here, we will just look at the signal but we could look at other properties which vary with the coordinate index like n_scat.
     }
 
-    # Generate the specification forthis plot, applying the default values.
+
+    # Generate the specification for this plot, applying the default values.
     spec = {k : v if k not in spec_provided.keys() else spec_provided[k] for k, v in default_spec.items()}
+    
+    # Get the indices and raw coordinates
+    indices = spec["indices"]
+    coordinates = settings["meta"]["coordinates"]
 
     # Define the output file as the figure title + settings hash
     output_file = get_output_file(args, title, parameters)
 
     # Get the data from the array/table in the database matching the given key.
-    data = get_data_coordinates(settings, parameters, db, spec["z"], coordinate_indices=spec["indices"])
+    data = get_data_coordinates(settings, parameters, db, spec["z"], coordinate_indices=indices)
     assert data is not None
 
     # Reshape the data to be N x N
@@ -189,12 +194,18 @@ def xy_intensity(args, settings, parameters, db, title):
     else:
         data = data.T
 
+    """
     # Flip the y axis
     if spec["flip"]:
         if   spec["x"] == y:
             data = data[:, ::-1]
         elif spec["y"] == y:
             data = data[::-1]
+    """
+
+    # Apply a denoising filter
+    if spec["denoise"]:
+        data = denoise(data)
 
     # Fourier transform the data and shift so that 0 frequency components are in the center.
     if spec["FT"]:
@@ -210,23 +221,46 @@ def xy_intensity(args, settings, parameters, db, title):
         data /= max_val
         data *= 2
         print(np.array(np.rint(data), dtype=int))
-        return
 
     # Create either a raw image or a proper figure.
     if spec["figure"]:
-        # TODO: Output the images as pretty figures.
-        pass
+        # Create the figure and axes
+        fig, ax = plt.subplots()
+        
+        # Set the title
+        ax.set_title(title)
+
+        # Display the data in greyscale
+        plt.imshow(data, cmap='gray')
+       
+        # Set the axis ticks
+        x_min, x_max, y_min, y_max = coordinates[spec["x"]][indices].min(), coordinates[spec["x"]][indices].max(), coordinates[spec["y"]][indices].min(), coordinates[spec["x"]][indices].max(),
+        ticks = np.array([i*(N//8) for i in range(9)])
+
+        # Start with the first element in the bottom corner
+        ax.invert_yaxis()
+        
+        # Configure the ticks
+        ax.set_xticks(ticks, (ticks/N)*(x_max-x_min)+x_min)
+        ax.set_yticks(ticks, (ticks/N)*(y_max-y_min)+y_min)
+
+        # Label the axes
+        ax.set_xlabel(spec["x_name"])
+        ax.set_ylabel(spec["y_name"])
+        
+        # Save the figure
+        plt.savefig(output_file)
     else:
+        # Save the image
         plt.imsave(output_file, data, cmap='gray')
 
     return
 
 def bar_chart(args, settings, parameters, db, title):
     '''
-    Output a barchart derived from:
+    Output a histogram-like figure derived from:
     The finite elements in a database column e.g. the number of times rays scatter.
     The occurence of that quantity.
-    (Optionally) the standard deviation.
     '''
     # The specification for the plot with this title.
     spec_provided = settings["display"][title]
@@ -234,13 +268,12 @@ def bar_chart(args, settings, parameters, db, title):
     # The default specification for xy intensity plots creates an image file with the y axis flipped.
     x, y, theta, phi = 0, 1, 2, 3
     default_spec = {
-        "figure"      : False,                       # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
+        "figure"      : True,                        # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to True.
         "stdout"      : False,                       # Output a the values to stdout scaled to 0, 1 or 2 and scaled down to a 32 x 32 grid. Defaults to False.
-        "logarithmic" : False,                   # Plot the bar height on a logarithmic axis.
+        "logarithmic" : False,                       # Plot the bar height on a logarithmic axis.
         "indices"     : np.array([]),                # Which subset of the indices we have simulated we will be plotting.
         "x"           : None,                        # The value we are tracking.
         "x_name"      : "Number of Times Scattered", # The x axis title. We can use this to e.g. include units
-        "errors"      : True,                        # Add error bars, if possible.
     }
 
     # Generate the specification forthis plot, applying the default values.
@@ -257,14 +290,24 @@ def bar_chart(args, settings, parameters, db, title):
     if spec["stdout"]:
         # We should be able to print the data
         print(data)
-        return
 
     # Create either a raw image or a proper figure.
     if spec["figure"]:
-        # TODO: Output the images as pretty figures.
-        pass
+        fig, ax = plt.subplots()
+        
+        ax.set_title(title)
+
+        ax.bar(data[0], data[1], fill=True, log=spec["logarithmic"])
+
+        ax.set_xlabel(spec["x_name"])
+        if spec["logarithmic"]:
+            ax.set_ylabel("log(count)")
+        else:
+            ax.set_ylabel("count")
+        
+        plt.savefig(output_file)
     else:
-        plt.imsave(output_file, data, cmap='gray')
+        pass
 
     return
 
@@ -277,7 +320,7 @@ def output(args, settings, parameters):
     # A dictionary mapping type strings to the corresponding functions.
     display_functions = {
             "xy intensity" : xy_intensity, # Create a greyscale plot in two coordinate variables of some result
-            "bar chart"    : bar_chart,    # Create a barchart using two variables. One, a finite Python list, the other some continuous value, potentially with standard deviations.
+            "bar chart"    : bar_chart,       # Create a bar chart using two variables. One, a finite Python list, the other some continuous value.
     }
 
     # Open the database read only.

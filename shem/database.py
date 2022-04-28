@@ -129,7 +129,7 @@ def db_setup(args):
     class Parameters(tb.IsDescription):
         hashed = tb.StringCol(itemsize=32,pos=0) # Hash of the parameters. Can be used to look up the corresponding data in the database.
         values = tb.Float64Col(shape=(shem.configuration.get_parameters_count(settings),), pos=1) # Encode the parameters as Float64
-        mse    = tb.Float64Col(pos=2) # Mean squared error
+        chi2    = tb.Float64Col(pos=2) # Mean squared error
 
     # Create a table to store the optimisation parameters we will run through
     params_table = db.create_table(meta_group, 'params', Parameters, "Optimisation Parameters Table", expectedrows=256, filters=io_filter)

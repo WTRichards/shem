@@ -4,6 +4,10 @@ import hashlib
 import numpy as np
 import cupy  as cp
 
+from skimage.restoration import denoise_nl_means, estimate_sigma
+
+import cv2
+
 # Convert a dictionary into an object.
 # Makes config files so much nicer.
 # https://joelmccune.com/python-dictionary-as-object/
@@ -63,5 +67,11 @@ def get_xp(args):
         return np
 
 
+# https://scikit-image.org/docs/stable/auto_examples/filters/plot_nonlocal_means.html
+# Denoising function
+patch_kw = dict(patch_size=5,      # 5x5 patches
+                patch_distance=6,  # 13x13 search area
+                channel_axis=None)
+denoise = lambda data: denoise_nl_means(data/data.max(), h=1.15 * np.mean(estimate_sigma(data/data.max())), fast_mode=False, **patch_kw)
     
 

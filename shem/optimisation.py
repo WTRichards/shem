@@ -11,6 +11,7 @@ import time
 import shem.configuration
 import shem.simulation
 
+from shem.definitions import *
 
 ############################
 # Performance Optimisation #
@@ -102,25 +103,11 @@ def calc_max_batch_sizes(
 # Parametric Optimisation #
 ###########################
 
-def calc_mse(image, test):
+def calc_chi2(image, test, processing=lambda data: data):
     '''
-    Calculate the sum of the squared differences between the image and the result.
-    We will divide both by their maximum to remove any linear scaling
+    Calculate the sum of the squared differences between the image and the result, then divide by the expected value.
     '''
-    return ((image/np.max(image) - test/np.max(test))**2).sum()
-
-def random_search(settings, params, mse):
-    '''
-    Optimise the parameters with a random search in the vector space.
-    The arguments provided include the settings (for the specification), the previous parameters attempted and their mse.
-    '''
-
-    # Randomise the settings.
-    settings = shem.configuration.randomise_settings_in_bounds(settings)
-
-    # Return the randomised parameters.
-    return shem.configuration.get_setting_values(settings)
-
+    return np.nan_to_num( (processing(image) - processing(test))**2 / processing(image), nan=0, posinf=0, neginf=0 ).sum()
 
 def run_analysis(args):
     '''
@@ -135,11 +122,8 @@ def run_analysis(args):
 
     # Get the relevant coordinate indices
     indices = settings["meta"]["solver"]["indices"]
-    
-    # We define the threshold for the loop to end by comparison with an identical images
-    # A 128x128 image gives a mean squared error of about 0.05 due to rounding, image conversion, etc.
-    # The mse scales with the size of the image, hence a threshold of x * (0.05 / 128**2) i.e. in units of the average rounding error per pixel.
-    threshold = settings["meta"]["solver"]["threshold"] * (0.05 / 128**2) * image.size
+    # The threshold scales with the image size
+    threshold = settings["meta"]["solver"]["threshold"] * image.size
     
     # Load the surface object into memory
     surface = shem.surface.load_surface(args, settings)
@@ -150,15 +134,19 @@ def run_analysis(args):
     # Open the database file.
     db = shem.database.open_database_file(args, mode="r+")
     # Parameters table in the database
-    params_table = db.root.meta.params
+    params_table = db.root.metadata.params
 
     def simulation_wrapper(parameters):
+        settings = shem.configuration.get_settings(args)
+
         # Apply the new parameters to the settings
         settings = shem.configuration.set_setting_values(settings, parameters)
+        print(parameters)
+        shem.configuration.get_parameters(settings)
 
         # Ensure that the settings are in the bounds specified.
         assert shem.configuration.check_settings_in_bounds(settings) is True
-
+        
         # Create the necessary tables and arrays
         db_tuple = shem.database.create_new_simulation_db(db, settings, parameters)
 
@@ -168,38 +156,43 @@ def run_analysis(args):
         # Get the result from the database
         simulation_result = np.reshape(db_tuple[2][indices], image.shape)
 
-        # Calculate the mean squared error
-        mse = calc_mse(image, result)
+        # Calculate the Chi2 value for denoised images
+        chi2 = calc_chi2(image, simulation_result, processing=denoise)
 
-        # TODO: Display the result?
+
+        # Print the parameters used and the chi2 value.
+        if not args.quiet:
+            print(settings["scattering"])
+            print("Chi2 value = " + str(chi2) + "\nParameters:\n" + shem.configuration.get_parameters(settings))
 
         # Append the results to the database
         p = params_table.row
         p['hashed'] = hash_obj(parameters)
         p['values'] = parameters
-        p['mse']    = mse
+        p['chi2']    = chi2
         p.append()
         params_table.flush()
 
-        return mse
+        return chi2
 
     # Specify the bounds - we could also specify constraints here...
     bounds = shem.configuration.get_parameters_bounds(settings)
 
     # Start in the center of the bounds.
-    x0 = np.array([ (bound[0] + bound[1])/2 for bound in bounds_settings ])
+    x0 = np.array([ (bound[0] + bound[1])/2 for bound in bounds ])
 
     # Seed the RNG
     np.random.seed(0)
     cp.random.seed(0)
 
-    # Minimise the mse between the result and image, subject to the bounds specified, starting in the middle of them with a particular tolerance for termination.
+    # Minimise the chi2 between the result and image, subject to the bounds specified, starting in the middle of them with a particular tolerance for termination.
     # See SciPy documentation for more details.
-    result = scipy.optimize.minimize(simulation_wrapper, x0, method='trust-constr', options={'verbose': 1}, bounds=bounds, tol=threshold)
+    result = scipy.optimize.minimize(simulation_wrapper, x0, method='trust-constr', options={'verbose': 1}, bounds=bounds)
 
     # Output the result of the minimisation
     print(result)
 
     # Close the database file
     db.close()
+
     return

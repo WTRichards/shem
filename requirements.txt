@@ -17,4 +17,5 @@ toml
 pandas
 
 tqdm
-
+opencv-python
+scikit-image

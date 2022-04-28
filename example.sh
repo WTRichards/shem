@@ -7,10 +7,10 @@
 # python -m shem -h
 
 # Generate a mesh comprising a flat platform
-#python -m shem -q -m mesh.stl mesh -W 1.0 -H 0.2 -t "flat"
+#python -m shem -q -m mesh.stl mesh -W 4.0 -H 0.5 -t "flat"
 
 # Generate a mesh comprising a flat platform and sphere
-python -m shem -q -m mesh.stl mesh -W 1.0 -H 0.2 -R 0.1 -I 3 -t "sphere"
+python -m shem -q -m mesh.stl mesh -W 4.0 -H 0.5 -R 0.4 -I 3 -t "sphere"
 
 # For more information about the mesh subcommand
 # python -m shem mesh -h

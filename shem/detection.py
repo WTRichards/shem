@@ -46,7 +46,7 @@ def detect_surface_collisions(r, s, match_normal=False):
     del p_
 
     # The matrix of truth values for which all conditions above are satisfied.
-    collisions_matrix = within_edges * time_matches * normal_matches
+    collisions_matrix = within_edges * time_matches
     # Free the memory used by these boolean matrices
     del within_edges
     del time_matches
