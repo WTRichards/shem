@@ -39,8 +39,6 @@ def get_source_rays(rays_i, source_location, func, coordinates, coordinate_indic
     Return the deviation of the source ray from a perfect source.
     '''
     xp = cp.get_array_module(rays_i, coordinates, coordinate_indices)
-    z = xp.array([0,0,1], dtype=xp.float32)
-
     a = rays_i[0]
     b = rays_i[1]
 
@@ -71,15 +69,16 @@ def get_source_rays(rays_i, source_location, func, coordinates, coordinate_indic
     a[...,   PHI] = 0.0
     """
 
+    x, y, z, theta, phi = [i for i in range(5)]
+
     # Get the initial off-axis polar components
-    a_polar_i = shem.geometry.cart2polar(a)[..., 1:]
+    a_polar_i = shem.geometry.cart2polar(a)[..., [theta, phi]]
     
     # Generate the locations of the source at each coordinate index when displaced by (theta, phi).
-    angled_source_locations = shem.geometry.polar2cart( shem.geometry.cart2polar(source_location) + xp.array([xp.zeros(rays_i.shape[1]), coordinates[2][coordinate_indices], coordinates[3][coordinate_indices]]).T )
+    angled_source_locations = shem.geometry.polar2cart( shem.geometry.cart2polar(source_location) + xp.array([xp.zeros(rays_i.shape[1]), coordinates[theta][coordinate_indices], coordinates[phi][coordinate_indices]]).T )
     
     # Rotate the angular distributions so they lie along the axis of a perfect source.
-    a[:] = shem.geometry.rotate_frame(z, -angled_source_locations, a)
-    
+    a[:] = shem.geometry.rotate_frame(xp.array([0,0,1], dtype=xp.float32), -angled_source_locations, a)
 
     # Normalise the directions
     a[:] = shem.geometry.vector_normalise(a)
@@ -90,11 +89,11 @@ def get_source_rays(rays_i, source_location, func, coordinates, coordinate_indic
     
     # Add the displacements in x and y.
     #b[:] = angled_source_locations + xp.array([coordinates[0][coordinate_indices], coordinates[1][coordinate_indices], xp.zeros(rays_i.shape[1])]).T
-    b[..., :] = source_location + xp.array([coordinates[0][coordinate_indices], coordinates[1][coordinate_indices], xp.zeros(rays_i.shape[1])]).T
+    #b[..., :] = source_location + xp.array([coordinates[0][coordinate_indices], coordinates[1][coordinate_indices], xp.zeros(rays_i.shape[1])]).T
+    b[..., :] = source_location + coordinates[[x, y, z]][:, coordinate_indices].T
 
     # Just return the initial deviation from a perfect ray.
     return a_polar_i
-
 
 
 ####################

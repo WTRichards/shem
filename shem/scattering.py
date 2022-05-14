@@ -37,8 +37,6 @@ def diffuse_perfect(a, f, s):
     A scattering function which describes perfect diffuse scattering
     '''
     xp = cp.get_array_module(a, f, s.vertices)
-
-    z = xp.array([0,0,1], dtype=xp.float32)
     n = s.normals[f]
     
     # Generate random directions
@@ -99,11 +97,11 @@ def diffraction_2d_simple(a, f, s, sigma_envelope=1.0, sigma_peaks=0.1):
     """
 
     # Sample the distribution across points up to max_order (in a square)
-    max_order = 12
+    max_order = 6
 
     # Determine the most likely momentum change using a Boltzman factor, scaled by sigma_envelope.
     momentum = lambda L, M: xp.expand_dims(L, -1)*b1 + xp.expand_dims(M, -1)*b2
-    boltzmann_factor = lambda L, M: xp.exp( - ( shem.geometry.vector_norm(momentum(L, M)) / sigma_envelope )**2 / 2 )
+    boltzmann_factor = lambda L, M: xp.exp( - ( shem.geometry.vector_norm(momentum(L, M)) / sigma_envelope )**2 / 4 )
     
     # Get the reciprocal lattice constants as integers
     L, M = shem.probability.pdist_sample(boltzmann_factor, n=r_dim, bounds=np.array([[-max_order, -max_order],[max_order, max_order]]), n_points=np.array([2*max_order + 1, 2*max_order + 1]), use_gpu=(xp is cp))
@@ -113,7 +111,7 @@ def diffraction_2d_simple(a, f, s, sigma_envelope=1.0, sigma_peaks=0.1):
     M += sigma_peaks*xp.random.randn(*M.shape)
 
     # Add the momentum to the specular vector and a small random vector scaled by sigma_peaks, then normalise
-    return shem.geometry.vector_normalise( specular_perfect(a, f, s) + xp.expand_dims(L, -1)*b1 + xp.expand_dims(M, -1)*b2 )
+    return shem.geometry.vector_normalise( specular_perfect(a, f, s) + momentum(L, M) )
 
 
 def calc_scattering_function(a, faces, surface, func):
@@ -150,9 +148,8 @@ def scatter(r, surface, func, n_scat=255):
     xp = cp.get_array_module(r, surface.vertices)
 
     # Output rays
-    r_f = r.copy()
-    a = r_f[0]
-    b = r_f[1]
+    a = r[0]
+    b = r[1]
 
     # Array sizes
     r_dim = r.shape[1]
@@ -169,14 +166,14 @@ def scatter(r, surface, func, n_scat=255):
     for i in range(n_scat):
         # Detect which faces the rays collide with.
         # We need to keep track of which ray is which, so return indices.
-        t, scattered_rays_indices, scattered_faces_indices = shem.detection.detect_surface_collisions(r_f[:, scattered, :], surface)
+        t, scattered_rays, scattered_faces_indices = shem.detection.detect_surface_collisions(r[:, scattered, :], surface)
 
         # Return now if there are no collisions.
         if t is None:
             break
 
         # Assume none of the rays collide with the surface, then record the ones that do.
-        scattered_indices = scattered_indices[scattered_rays_indices]
+        scattered_indices = scattered_indices[scattered_rays]
         not_scattered = xp.ones(r_dim, dtype=xp.bool)
         not_scattered[scattered_indices] = False
 
@@ -194,5 +191,5 @@ def scatter(r, surface, func, n_scat=255):
         b[scattered] = shem.ray.parameterise(a_, b_, t) + DELTA*n_        
         a[scattered] = calc_scattering_function(a_, scattered_faces_indices, surface, func)
 
-    return r_f, n_s
+    return r, n_s
 

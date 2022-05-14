@@ -170,5 +170,95 @@ def create_sphere_triangles(w, h, r, iterations=3):
         platform_vertices_[interface_faces],
         sphere_triangles_,
     ))
-
+ 
     return sphere_triangles
+
+def create_trenches_triangles(w, h, t_w, t_h, t_d):
+    '''
+    Accepts the width and height of a slab, the number of trenches and the relative width and height relative to the maximum possible and the depths of each trench.
+    Returns an N x 3 x 3 numpy array of triangles representing a slab of specified dimensions.
+    '''
+    assert t_w < 1.0
+    assert t_h < 1.0
+    for d in t_d:
+        assert d < 1.0
+
+    # Number of trenches
+    n = len(t_d)
+
+    trench_vertices = np.array([
+        np.array([2*i+1-n, 0, 0]) + np.array([
+            [-t_w, -t_h,    0],
+            [+t_w, -t_h,    0],
+            [+t_w, +t_h,    0],
+            [-t_w, +t_h,    0],
+            [-t_w, -t_h, -2*d],
+            [+t_w, -t_h, -2*d],
+            [+t_w, +t_h, -2*d],
+            [-t_w, +t_h, -2*d],
+        ]) for i, d in enumerate(t_d)
+    ])
+
+    # Divide by n+1 to allow space at the edges
+    trench_vertices[..., 0] /= n+1
+
+    # Faces within the trenches
+    within_trench_faces = np.array([
+        # Sides
+        [0,5,4],
+        [0,1,5],
+        [1,6,5],
+        [1,2,6],
+        [2,7,6],
+        [2,3,7],
+        [3,4,7],
+        [3,0,4],
+        #Bottom
+        [4,5,6],
+        [6,7,4],
+    ])
+
+
+    # Define the trench width relative to the first and final trenches
+    t_w_ = trench_vertices[-1,1,0]
+
+    # Triangles outlining the gap between trenches and flat surface
+    flat_surface_triangles = np.array([
+        # Triangles to the sides of trenches
+        [[-1, -t_h, 0], [-1   , +t_h, 0], [-t_w_, -t_h, 0]][::-1],
+        [[-1, +t_h, 0], [-t_w_, -t_h, 0], [-t_w_, +t_h, 0]],
+        [[+1, -t_h, 0], [+1   , +t_h, 0], [+t_w_, -t_h, 0]],
+        [[+1, +t_h, 0], [+t_w_, -t_h, 0], [+t_w_, +t_h, 0]][::-1],
+        # Triangles above and below trenches
+        [[-1, -1, 0], [+1,   -1, 0], [+1, -t_h, 0]],
+        [[-1, -1, 0], [+1, -t_h, 0], [-1, -t_h, 0]],
+        [[-1, +1, 0], [+1,   +1, 0], [+1, +t_h, 0]][::-1],
+        [[-1, +1, 0], [+1, +t_h, 0], [-1, +t_h, 0]][::-1],
+    ])
+
+    # Surface between trenches
+    between_surface_vertices = np.stack((
+        trench_vertices[:-1, [1,2]],
+        trench_vertices[+1:, [0,3]],
+    )).transpose(1,0,2,3).reshape(-1,4,3)
+
+    between_surface_faces = np.array([
+        [0,3,1],
+        [0,2,3],
+    ])
+
+    between_surface_triangles = between_surface_vertices[:, between_surface_faces, :]
+
+    flat_triangles = np.vstack((
+        PLATFORM_VERTICES[PLATFORM_FACES],
+        np.vstack(trench_vertices[:, within_trench_faces, :]) / 2,
+        flat_surface_triangles / 2,
+        np.vstack(between_surface_triangles) / 2,
+    ))
+
+    # Rescale the mesh
+    flat_triangles[..., 0] *= w
+    flat_triangles[..., 1] *= w
+    flat_triangles[..., 2] *= h
+
+    return flat_triangles

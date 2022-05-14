@@ -49,7 +49,7 @@ def load_intensity_image(path, settings=None):
     assert data.shape[0] == data.shape[1]
 
     # Set spec manually if we don't wish to use settings for debugging
-    x, y, theta, phi = 0, 1, 2, 3
+    x, y, z, theta, phi = [i for i in range(5)]
     if settings is None:
         spec = {
             "x" : x,
@@ -152,7 +152,7 @@ def xy_intensity(args, settings, parameters, db, title):
     spec_provided = settings["display"][title]
 
     # The default specification for xy intensity plots creates an image file with the y axis flipped.
-    x, y, theta, phi = 0, 1, 2, 3
+    x, y, z, theta, phi = [i for i in range(5)]
     default_spec = {
         "flip"    : True,           # Flip the y axis. This is necessary if we want to see the image we expect for the regular xy plot (y axis not inverted). See the camera obscura.
         "FT"      : False,          # Fourier transform the image.
@@ -188,11 +188,17 @@ def xy_intensity(args, settings, parameters, db, title):
     N = int(N)
     data = data.reshape(N, N)
 
+    # Transpose the data if necessary since reshaping does not respect the original coordinates
+    if spec["x"] < spec["y"]:
+        data = data.T
+
+    """
     # We need to transpose the indices for the data to make sense if we are not scanning in x and y.
     if (spec["x"] == x and spec["y"] == y) or (spec["x"] == y and spec["y"] == x):
         pass
     else:
         data = data.T
+    """
 
     """
     # Flip the y axis
@@ -233,16 +239,18 @@ def xy_intensity(args, settings, parameters, db, title):
         # Display the data in greyscale
         plt.imshow(data, cmap='gray')
        
-        # Set the axis ticks
-        x_min, x_max, y_min, y_max = coordinates[spec["x"]][indices].min(), coordinates[spec["x"]][indices].max(), coordinates[spec["y"]][indices].min(), coordinates[spec["x"]][indices].max(),
-        ticks = np.array([i*(N//8) for i in range(9)])
-
         # Start with the first element in the bottom corner
         ax.invert_yaxis()
+
+        # Set the axis ticks
+        x_min, x_max, y_min, y_max = coordinates[spec["x"]][indices].min(), coordinates[spec["x"]][indices].max(), coordinates[spec["y"]][indices].min(), coordinates[spec["y"]][indices].max(),
+        ticks = np.array([i*(N//8) for i in range(9)])
         
         # Configure the ticks
-        ax.set_xticks(ticks, (ticks/N)*(x_max-x_min)+x_min)
-        ax.set_yticks(ticks, (ticks/N)*(y_max-y_min)+y_min)
+        # Round the axis ticks
+        rounded = lambda x: '{0:.3g}'.format(x)
+        ax.set_xticks(ticks, list(map(rounded, (ticks/N)*(x_max-x_min)+x_min)))
+        ax.set_yticks(ticks, list(map(rounded, (ticks/N)*(y_max-y_min)+y_min)))
 
         # Label the axes
         ax.set_xlabel(spec["x_name"])
@@ -266,7 +274,7 @@ def bar_chart(args, settings, parameters, db, title):
     spec_provided = settings["display"][title]
 
     # The default specification for xy intensity plots creates an image file with the y axis flipped.
-    x, y, theta, phi = 0, 1, 2, 3
+    x, y, z, theta, phi = [i for i in range(5)]
     default_spec = {
         "figure"      : True,                        # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to True.
         "stdout"      : False,                       # Output a the values to stdout scaled to 0, 1 or 2 and scaled down to a 32 x 32 grid. Defaults to False.
@@ -297,7 +305,7 @@ def bar_chart(args, settings, parameters, db, title):
         
         ax.set_title(title)
 
-        ax.bar(data[0], data[1], fill=True, log=spec["logarithmic"])
+        ax.bar(data[0], data[1], width=1, fill=True, log=spec["logarithmic"])
 
         ax.set_xlabel(spec["x_name"])
         if spec["logarithmic"]:

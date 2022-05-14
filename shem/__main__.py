@@ -39,6 +39,13 @@ def mesh(args):
     # TODO: Implement rough surface generation.
     elif args.type == 'rough':
         triangles = shem.mesh.create_flat_triangles(args.width, args.height)
+    # Create a mesh with a series of trenches
+    elif args.type == 'trenches':
+        triangles = shem.mesh.create_trenches_triangles(args.width, args.height, args.trench_width, args.trench_height, args.trench_depths)
+
+    # Alter the convention
+    if args.xz_convention:
+        triangles = np.roll(triangles, -1, axis=-1)
 
     # Generate the mesh object from the raw triangles.
     mesh = shem.mesh.convert_triangles_to_mesh(triangles)
@@ -136,6 +143,8 @@ def main():
     # We will generate the database from the hash of the config file.
     #parser.add_argument("-d", "--database",     help="h5 database file",       default="simulation.db")
     parser.add_argument("-m", "--mesh",         help="mesh file as stl",       default="mesh.stl")
+    # Swap y and z - this software uses the convention that the sample is aligned along the xy plane rather than the xz plane
+    parser.add_argument("-L", "--xz-convention", help="scans and meshes aligned along xz direction", action="store_true")
     
     # Either verbose or quiet, not both
     verbosity = parser.add_mutually_exclusive_group()
@@ -159,9 +168,12 @@ def main():
     # Mesh subparser
     parser_mesh = subparsers.add_parser('mesh', aliases=[], help='create an STL mesh using the command line')
     # Mesh parameters
-    parser_mesh.add_argument("-W", "--width",  help="width parameter for meshes", type=float, default=1.0)
-    parser_mesh.add_argument("-H", "--height", help="height parameter for meshes", type=float, default=0.2)
-    parser_mesh.add_argument("-R", "--radius", help="radius parameter for spherical meshes", type=float, default=0.1)
+    parser_mesh.add_argument("-w", "--width",  help="width parameter for meshes", type=float, default=1.0)
+    parser_mesh.add_argument("-T", "--height", help="height parameter for meshes", type=float, default=0.2)
+    parser_mesh.add_argument("-W", "--trench-width",  help="trench width parameter for meshes", type=float, default=0.8)
+    parser_mesh.add_argument("-H", "--trench-height", help="trench height parameter for meshes", type=float, default=0.8)
+    parser_mesh.add_argument("-D", "--trench-depths", help="trench depth parameter/s for meshes; can be specified multiple times", type=float, nargs='+', default=[i/5 for i in range(1,5)])
+    parser_mesh.add_argument("-r", "--radius", help="radius parameter for spherical meshes", type=float, default=0.1)
     parser_mesh.add_argument("-I", "--iterations", help="iterations parameter for smoothing meshes", type=int, default=4)
     # Mesh type
     parser_mesh.add_argument("-t", "--type", help="mesh type", default="flat")

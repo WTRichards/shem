@@ -105,7 +105,8 @@ sigma2 = 0.5
 
 delta = {
     "function" : shem.source.delta,
-    "strength" : 0.1, 
+    "strength" : 0.2,
+    "kwargs" : {},
 }
 
 
@@ -113,13 +114,14 @@ uniform = {
     "function" : shem.source.uniform_cone,
     "strength" : 0.2, 
     "kwargs": {
-        "theta_max" : np.radians(0.1), # Uniform cone polar angle 0.1 degrees
+        #"theta_max" : np.radians(0.01), # Uniform cone polar angle 0.01 degrees
+        "theta_max" : 0.01, # Uniform cone polar angle 0.01 radians
     },
 }
 
 gaussian1 = {
     "function" : shem.source.gaussian,
-    "strength" : 0.4, 
+    "strength" : 0.3, 
     "kwargs": {
         "sigma" : np.radians(0.1)
     },
@@ -127,7 +129,7 @@ gaussian1 = {
 
 gaussian2 = {
     "function" : shem.source.gaussian,
-    "strength" : 0.4, 
+    "strength" : 0.3, 
     "kwargs": {
         "sigma" : np.radians(0.05)
     },
@@ -137,8 +139,8 @@ gaussian2 = {
 source_function = {
     #"Delta"           : delta,
     "Uniform"         : uniform,
-    "First Gaussian"  : gaussian1,
-    "Second Gaussian" : gaussian2,
+    #"First Gaussian"  : gaussian1,
+    #"Second Gaussian" : gaussian2,
 }
 
 
@@ -148,46 +150,52 @@ source_function = {
 """
 Define how the surface scan will be conducted.
 These defaults are small but sensible and prove the simulation works.
-We will we define the coordinates we scan over as a 4 x n NumPy array.
-We can specify x, y, theta and phi coordinates.
-Here, we define theta as the azimuthal angular displacement and phi as the polar angular displacement relative to the location of the source.
+We will we define the coordinates we scan over as a 5 x n NumPy array.
+We can specify x, y, z, theta and phi coordinates.
+Here, we define theta as the polar angular displacement and phi as the azimuthal angular displacement relative to the location of the source.
 We define theta as the polar displacement from the original source location, taking the z axis and the center of the source and phi as the azimuthal displacement.
 While in reality the sample is moved about on a stage it is computationally more efficient to move the source and keep the sample static.
 """
 
 # A scan over the x and y indices at (theta, phi) = (0, 0)
-cart_steps = 512
-width = 2.0
-x = np.linspace(-width/2, +width/2, cart_steps)
-y = np.linspace(-width/2, +width/2, cart_steps)
-cart_scan_single = np.stack(tuple(map(np.ravel, np.meshgrid(x, y, 0, 0, indexing='ij'))))
+cart_steps = 256
+width = 2.56
+height = width
+x = np.linspace( -width/2,  +width/2, cart_steps)
+y = np.linspace( -width/2,  +width/2, cart_steps)
+z = np.linspace(-height/2, +height/2, cart_steps)
+cart_scan_single = np.stack(tuple(map(np.ravel, np.meshgrid(x, y, 0, 0, 0, indexing='ij'))))
 
 # Scan over the theta and phi indices for multiple values of (x,y)
 polar_steps = cart_steps
-angle = np.radians(30)
+theta_angle = np.radians(30)
+phi_angle = np.radians(180)
 #cart_polar_steps = 2
 #x_polar = np.linspace(-width/2, +width/2, cart_polar_steps)
 #y_polar = np.linspace(-width/2, +width/2, cart_polar_steps)
-theta   = np.linspace(-angle/2, +angle/2, polar_steps)
-phi     = np.linspace(-angle/2, +angle/2, polar_steps)
-polar_scan_single = np.stack(tuple(map(np.ravel, np.meshgrid(0, 0, theta, phi, indexing='ij'))))
+theta   = np.linspace(-theta_angle/2, +theta_angle/2, polar_steps)
+phi     = np.linspace(  -phi_angle/2,   +phi_angle/2, polar_steps)
+polar_scan_single = np.stack(tuple(map(np.ravel, np.meshgrid(0, 0, 0, theta, phi, indexing='ij'))))
+
+# Scan over z and phi (raising and lowering sample, plus rotating it around the z axis)
+z_phi_scan_single = np.stack(tuple(map(np.ravel, np.meshgrid(0, 0, z, 0, phi, indexing='ij'))))
 
 # Scan over x and theta
-x_theta_scan_single = np.stack(tuple(map(np.ravel, np.meshgrid(x, 0, theta, 0, indexing='ij'))))
+x_theta_scan_single = np.stack(tuple(map(np.ravel, np.meshgrid(x, 0, 0, theta, 0, indexing='ij'))))
 
 # Scan over x and phi
-x_phi_scan_single = np.stack(tuple(map(np.ravel, np.meshgrid(x, 0, 0, phi, indexing='ij'))))
+x_phi_scan_single = np.stack(tuple(map(np.ravel, np.meshgrid(x, 0, 0, 0, phi, indexing='ij'))))
 
 # Scan over y and theta
-y_theta_scan_single = np.stack(tuple(map(np.ravel, np.meshgrid(0, y, theta, 0, indexing='ij'))))
+y_theta_scan_single = np.stack(tuple(map(np.ravel, np.meshgrid(0, y, 0, theta, 0, indexing='ij'))))
 
 # Scan over y and phi
-y_phi_scan_single = np.stack(tuple(map(np.ravel, np.meshgrid(0, y, 0, phi, indexing='ij'))))
+y_phi_scan_single = np.stack(tuple(map(np.ravel, np.meshgrid(0, y, 0, 0, phi, indexing='ij'))))
 
 # All scans in a list
-scans = [cart_scan_single] #, polar_scan_single, x_theta_scan_single, x_phi_scan_single, y_theta_scan_single, y_phi_scan_single]
+scans = [cart_scan_single] #, z_phi_scan_single] , polar_scan_single, x_theta_scan_single, x_phi_scan_single, y_theta_scan_single, y_phi_scan_single]
 
-# Combine multiple scans into a single 4 x n array.
+# Combine multiple scans into a single 5 x n array.
 # USED
 coordinates = np.hstack(tuple(scans))
 
@@ -229,16 +237,15 @@ def my_specular(a, f, s, **kwargs):
 
 diffuse = {
     "function" : shem.scattering.diffuse_perfect,
-    "strength" : 0.3,
+    "strength" : 0.5,
     "kwargs"   : {
     },
 }
 
 # Specular broadened by superposition with a diffuse distribution.
-
 specular = {
     "function" : shem.scattering.diffuse_specular_superposition,
-    "strength" : 0.7,
+    "strength" : 0.5,
     "kwargs"   : {
         "r"    : 0.9 # Ratio of specular to diffuse superposed.
     },
@@ -266,10 +273,10 @@ specular = {
 # Simple 2D diffraction - dependent on surface properties.
 diffraction = {
     "function" : shem.scattering.diffraction_2d_simple,
-    "strength" : 7,
+    "strength" : 0.0,
     "kwargs"   : {
-        "sigma_envelope" : 2.0, # Determines probability of scattering at a certain quantised momentum.
-        "sigma_peaks"    : 0.4, # Uncertainty in the location of the peaks
+        "sigma_envelope" : 0.50, # Determines probability of scattering at a certain quantised momentum.
+        "sigma_peaks"    : 0.05, # Uncertainty in the location of the peaks
     },
 }
 
@@ -277,7 +284,7 @@ diffraction = {
 scattering_function = {
     "Perfect Diffuse Scattering"    : diffuse,
     "Broadened Specular Scattering" : specular,
-    #"Simple 2D Diffraction"         : diffraction,
+    "Simple 2D Diffraction"         : diffraction,
 }
 
 ################
@@ -289,7 +296,7 @@ To do this, we define the plots we wish to make as a dictionary.
 We will have to specify which coordinate indices we wish to use to make the plots.
 """
 
-x, y, theta, phi = 0, 1, 2, 3
+x, y, z, theta, phi = [i for i in range(5)]
 # USED
 display = {
     # The signal you would expect from an xy scan.
@@ -297,7 +304,7 @@ display = {
     "type"    : "xy intensity",            # Type of the plot. Determines how the rest of the dictionary is parsed.
     "denoise" : False,                     # Apply a denoising filter
     "flip"    : True,                      # Flip the image if plotting in x and y. This puts the image the right way up - see the camera obscura.
-    "figure"  : True,                     # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
+    "figure"  : True,                      # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
     "indices" : indices[0],                # Which subset of the indices we have simulated we will be plotting.
     "x"       :  x,                        # The x coordinate. Despite the name, an "xy intensity" plot can track any coordinate index
     "x_name"  : "x / au",                  # The x axis title. We can use this to e.g. include units
@@ -305,12 +312,13 @@ display = {
     "y_name"  : "y / au",                  # Identical to the x axis
     "z"       : "signal",                  # We specify which field from the many tables we wish to plot. Here, we will just look at the signal but we could look at other properties like n_scat.
     },
+
     # The signal you would expect from an xy scan with a denoise filter applied.
     "X-Y Signal (Denoised)" : {
     "type"    : "xy intensity",            # Type of the plot. Determines how the rest of the dictionary is parsed.
     "denoise" : True,                      # Apply a denoising filter
     "flip"    : True,                      # Flip the image if plotting in x and y. This puts the image the right way up - see the camera obscura.
-    "figure"  : True,                     # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
+    "figure"  : True,                      # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
     "indices" : indices[0],                # Which subset of the indices we have simulated we will be plotting.
     "x"       :  x,                        # The x coordinate. Despite the name, an "xy intensity" plot can track any coordinate index
     "x_name"  : "x / au",                  # The x axis title. We can use this to e.g. include units
@@ -322,7 +330,7 @@ display = {
     "Multiple Scattering (All Rays)" : {
     "type"    : "xy intensity",           # Type of the plot. Determines how the rest of the dictionary is parsed.
     "flip"    : True,                     # Flip the image if plotting in x and y. This puts the image the right way up - see the camera obscura.
-    "figure"  : True,                    # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
+    "figure"  : True,                     # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
     # "stdout"  : True,                     # Output the values scaled to 0, 1 or 2 and scaled down to a 32 x 32 grid to stdout. Defaults to False.
     "indices" : indices[0],               # Which subset of the indices we have simulated we will be plotting.
     "x"       :  x,                       # The x coordinate. Despite the name, an "xy intensity" plot can track any coordinate index
@@ -335,7 +343,7 @@ display = {
     "Multiple Scattering (Detected Rays)" : {
     "type"    : "xy intensity",           # Type of the plot. Determines how the rest of the dictionary is parsed.
     "flip"    : True,                     # Flip the image if plotting in x and y. This puts the image the right way up - see the camera obscura.
-    "figure"  : True,                    # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
+    "figure"  : True,                     # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
     "indices" : indices[0],               # Which subset of the indices we have simulated we will be plotting.
     "x"       :  x,                       # The x coordinate. Despite the name, an "xy intensity" plot can track any coordinate index
     "x_name"  : "x / au",                 # The x axis title. We can use this to e.g. include units
@@ -354,7 +362,7 @@ display = {
     "logarithmic" : False,                       # Plot the bar height on a logarithmic axis.
     },
     # The number of rays detected.
-    "Rays Detected Per Pixel" : {
+    "Rays Detected Per Pixel (X-Y)" : {
     "type"        : "bar chart",                 # Type of the plot. Determines how the rest of the dictionary is parsed.
     "figure"      : True,                        # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
     "stdout"      : True,                        # Output the values scaled to 0, 1 or 2 and scaled down to a 32 x 32 grid to stdout. Defaults to False.
@@ -363,8 +371,33 @@ display = {
     "x_name"      : "Number of Rays Detected",   # The x axis title. We can use this to e.g. include units
     "logarithmic" : False,                       # Plot the bar height on a logarithmic axis.
     },
+
 }
 """
+    # The number of rays detected.
+    "Rays Detected Per Pixel (Z-Phi)" : {
+    "type"        : "bar chart",                 # Type of the plot. Determines how the rest of the dictionary is parsed.
+    "figure"      : True,                        # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
+    "stdout"      : True,                        # Output the values scaled to 0, 1 or 2 and scaled down to a 32 x 32 grid to stdout. Defaults to False.
+    "indices"     : indices[1],                  # Which subset of the indices we have simulated we will be plotting.
+    "x"           : "signal",                    # The x coordinate. Despite the name, an "xy intensity" plot can track any coordinate index
+    "x_name"      : "Number of Rays Detected",   # The x axis title. We can use this to e.g. include units
+    "logarithmic" : False,                       # Plot the bar height on a logarithmic axis.
+    },
+    # The signal you would expect from an z-phi scan.
+    "Z-Phi Signal" : {
+    "type"    : "xy intensity",            # Type of the plot. Determines how the rest of the dictionary is parsed.
+    "denoise" : False,                     # Apply a denoising filter
+    "flip"    : False,                     # Flip the image if plotting in x and y. This puts the image the right way up - see the camera obscura.
+    "figure"  : True,                      # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
+    # Switch to the appropriate indices
+    "indices" : indices[1],                # Which subset of the indices we have simulated we will be plotting.
+    "x"       :  phi,                      # The x coordinate. Despite the name, an "xy intensity" plot can track any coordinate index
+    "x_name"  : "phi / rad",               # The x axis title. We can use this to e.g. include units
+    "y"       :  z,                        # Identical to the x axis
+    "y_name"  : "z / au",                  # Identical to the x axis
+    "z"       : "signal",                  # We specify which field from the many tables we wish to plot. Here, we will just look at the signal but we could look at other properties like n_scat.
+    },
     # The signal you would expect from an theta-phi scan.
     "Theta-Phi Signal" : {
     "type"    : "xy intensity",            # Type of the plot. Determines how the rest of the dictionary is parsed.
@@ -574,13 +607,13 @@ defaults = {
     # Parameters which affect how rays are detected. Pretty barebones for now. It would be nice if we could specify the detector shape, too...
     "detector" : {
         "type"     : "circle",
-        "location" : shem.geometry.polar2cart([1.0, 45.0, 0.0], radians=False),  # The location of the center of the detector relative to the origin.
-        "normal"   : -shem.geometry.polar2cart([1.0, 45.0, 0.0], radians=False), # The surface normal of the detector.
+        "location" : shem.geometry.polar2cart([1.0, 45.0, 90.0], radians=False),  # The location of the center of the detector relative to the origin.
+        "normal"   : -shem.geometry.polar2cart([1.0, 45.0, 90.0], radians=False), # The surface normal of the detector.
         "radius"   : None,                                                       # The radius of the detector aperture.
     },
     # Parameters which describe the source
     "source" : {
-        "location" : shem.geometry.polar2cart([1.0, 45.0, 180.0], radians=False), # The location of the point source.
+        "location" : shem.geometry.polar2cart([1.0, 45.0, -90.0], radians=False), # The location of the point source.
         "function" : None,                                                        # The function which decribes the distribution of rays from the point source.
     },
     # A dictionary describing how to output the data
@@ -614,7 +647,8 @@ settings = {
             #"template" : template_simple_scattering,
             # We provide a function as a method to solve for the original parameters.
             # In this case, we are interested in the ratios of the scattering distributions as well as the reciprocal lattice vectors.
-            "template" : template_simple_scattering,
+            #"template" : template_simple_scattering,
+            "template" : template_reciprocal_lattice,
             "threshold": 0.01, # Threshold to end the optimisation
              # Which subset of the indices we have simulated we will be comparing the data to.
             "indices"  : indices[0],
@@ -636,11 +670,11 @@ settings = {
             # It's a bit verbose but it works just as well
             "kwargs"   : {
                 "properties" : {
-                    "b1_x" : 0.1,
+                    "b1_x" : 0.2,
                     "b1_y" : 0.0,
                     "b1_z" : 0.0,
                     "b2_x" : 0.0,
-                    "b2_y" : 0.1,
+                    "b2_y" : 0.2,
                     "b2_z" : 0.0,
                 },
             },
@@ -652,12 +686,12 @@ settings = {
     },
     # Parameters which affect how rays are detected. Pretty barebones for now. It would be nice if we could specify the detector shape, too...
     "detector" : {
-        "radius"   : 0.25, # The radius of the detector aperture.
-        "location" : shem.geometry.polar2cart([2.0, 45.0, 0.0], radians=False),  # The location of the center of the detector relative to the origin.
+        "radius"   : 0.01, # The radius of the detector aperture.
+        "location" : shem.geometry.polar2cart([2.0, 45.0, 90.0], radians=False),  # The location of the center of the detector relative to the origin.
     },
     # Parameters which describe the source
     "source" : {
-        "location" : shem.geometry.polar2cart([2.0, 45.0, 180.0], radians=False), # The location of the point source.
+        "location" : shem.geometry.polar2cart([2.0, 45.0, -90.0], radians=False), # The location of the point source.
         "function" : source_function,                                             # The function which decribes the distribution of rays from the point source.
     },
     # A dictionary describing how to output the data

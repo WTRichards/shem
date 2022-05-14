@@ -7,10 +7,13 @@
 # python -m shem -h
 
 # Generate a mesh comprising a flat platform
-#python -m shem -q -m mesh.stl mesh -W 4.0 -H 0.5 -t "flat"
+#python -m shem -q -m mesh.stl mesh -w 2.0 -T 0.5 -t "flat"
+
+# Generate a mesh comprising several trenches
+#python -m shem -m mesh.stl mesh -w 2.0 -T 0.5 -W 0.8 -H 0.8 -D 0.2 0.4 0.6 0.8 -t "trenches"
 
 # Generate a mesh comprising a flat platform and sphere
-python -m shem -q -m mesh.stl mesh -W 4.0 -H 0.5 -R 0.4 -I 3 -t "sphere"
+python -m shem -q -m mesh.stl mesh -w 2.0 -T 0.5 -r 0.4 -I 3 -t "sphere"
 
 # For more information about the mesh subcommand
 # python -m shem mesh -h
@@ -19,7 +22,7 @@ python -m shem -q -m mesh.stl mesh -W 4.0 -H 0.5 -R 0.4 -I 3 -t "sphere"
 #python -m shem -v generate config.py
 
 # Run the simulation and generate an image using config.py on the GPU.
-python -O -m shem -g -v generate config.py
+python -O -m shem -m mesh.stl -g -v generate config.py
 
 # For more information about the generate subcommand
 # python -m shem generate -h

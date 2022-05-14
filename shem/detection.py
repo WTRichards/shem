@@ -9,7 +9,7 @@ from shem.definitions import *
 ###############################
 # Surface Collision Detection #
 ###############################
-def detect_surface_collisions(r, s, match_normal=False):
+def detect_surface_collisions(r, s, match_normal=True):
     xp = cp.get_array_module(r)
 
     a = r[0]
@@ -42,34 +42,27 @@ def detect_surface_collisions(r, s, match_normal=False):
     # The ray is within the three edges of the triangle, defined using the sign of the dot product.
     within_edges = (shem.geometry.vector_dot(n_, shem.geometry.vector_cross(e_, p_ - v_)) > 0).prod(axis=-1, dtype=xp.bool)
     
-    # Free the memory used by p
-    del p_
-
     # The matrix of truth values for which all conditions above are satisfied.
     collisions_matrix = within_edges * time_matches
-    # Free the memory used by these boolean matrices
-    del within_edges
-    del time_matches
 
     if match_normal:
         # The ray hits the 'outside' of the surface instead of the inside.
         normal_matches = xp.squeeze(shem.geometry.vector_dot(n_, a_) < 0, -1)
         collisions_matrix *= normal_matches
-        del normal_matches
-
 
     # TODO: See if we can use np.ufunc.reduce with the where argument to make this less circumspect. It works but is confusing...
 
     # Determine which rays result in collisions.
-    first_collisions_rays_indices  = xp.logical_not(xp.logical_not(collisions_matrix).prod(axis=-1, dtype=xp.bool)).nonzero()[0]
+    colliding_rays = xp.logical_not(xp.logical_not(collisions_matrix).prod(axis=-1, dtype=xp.bool))
+    # first_collisions_rays_indices  = colliding_rays.nonzero()[0]
 
     # Handle the case of no collisions.
-    if len(first_collisions_rays_indices) == 0:
+    if xp.logical_not(colliding_rays).prod(axis=-1, dtype=xp.bool) is True:
         return None, None, None
 
-    # Reduce t_ to just the rays which collide and set any non-collising ray-face pairs to NaN.
+    # Reduce t_ to just the rays which collide and set any non-colliding ray-face pairs to NaN.
     t_ = xp.squeeze(t_, -1)
-    t_ = xp.where(collisions_matrix[first_collisions_rays_indices, :], t_[first_collisions_rays_indices, :], xp.nan)
+    t_ = xp.where(collisions_matrix[colliding_rays, :], t_[colliding_rays, :], xp.nan)
 
     # Determine which surface the rays which collide do so with first.
     first_collisions_faces_indices = xp.nanargmin(t_, axis=-1)
@@ -78,7 +71,7 @@ def detect_surface_collisions(r, s, match_normal=False):
     t  = t_[(xp.arange(t_.shape[0]), first_collisions_faces_indices)]
 
     # Return the time each collision occurs, the index of the ray that caused it and the index of the face it hit.
-    return t, first_collisions_rays_indices, first_collisions_faces_indices
+    return t, colliding_rays, first_collisions_faces_indices
 
 ##################
 # Detector Types #
@@ -99,11 +92,14 @@ def detect_circle(rays, settings, coordinate_indices):
     b = rays[1]
 
 
-    # Transform polar coordinates TODO: Check that this is the correct transformation. We need to swap the sign on the polar angle to track the detector properly
-    angled_detector_locations = shem.geometry.polar2cart( shem.geometry.cart2polar(detector_location) + xp.array([xp.zeros(rays.shape[1]), -coordinates[2][coordinate_indices], coordinates[3][coordinate_indices]]).T )
+    x, y, z, theta, phi = [i for i in range(5)]
+    # Transform polar coordinates
+    # TODO: Check that this is the correct transformation. We need to swap the sign on the polar angle to track the detector properly
+    angled_detector_locations = shem.geometry.polar2cart( shem.geometry.cart2polar(detector_location) + xp.array([xp.zeros(rays.shape[1]), -coordinates[theta][coordinate_indices], coordinates[phi][coordinate_indices]]).T )
 
     # Transform Cartesian coordinates
-    d = angled_detector_locations + xp.array([coordinates[0][coordinate_indices], coordinates[1][coordinate_indices], xp.zeros(rays.shape[1])]).T
+    #d = angled_detector_locations + xp.array([coordinates[0][coordinate_indices], coordinates[1][coordinate_indices], xp.zeros(rays.shape[1])]).T
+    d = angled_detector_locations + coordinates[[x,y,z]][:, coordinate_indices].T
 
     # Find the time the ray intersects the plane of the circle.
     t = shem.ray.intersects_plane_time(a, b, n, d)
