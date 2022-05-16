@@ -200,14 +200,12 @@ def xy_intensity(args, settings, parameters, db, title):
         data = data.T
     """
 
-    """
     # Flip the y axis
     if spec["flip"]:
         if   spec["x"] == y:
             data = data[:, ::-1]
         elif spec["y"] == y:
             data = data[::-1]
-    """
 
     # Apply a denoising filter
     if spec["denoise"]:
@@ -240,7 +238,7 @@ def xy_intensity(args, settings, parameters, db, title):
         plt.imshow(data, cmap='gray')
        
         # Start with the first element in the bottom corner
-        ax.invert_yaxis()
+        #ax.invert_yaxis()
 
         # Set the axis ticks
         x_min, x_max, y_min, y_max = coordinates[spec["x"]][indices].min(), coordinates[spec["x"]][indices].max(), coordinates[spec["y"]][indices].min(), coordinates[spec["y"]][indices].max(),
@@ -257,7 +255,7 @@ def xy_intensity(args, settings, parameters, db, title):
         ax.set_ylabel(spec["y_name"])
         
         # Save the figure
-        plt.savefig(output_file)
+        plt.savefig(output_file, dpi=600)
     else:
         # Save the image
         plt.imsave(output_file, data, cmap='gray')
@@ -313,7 +311,7 @@ def bar_chart(args, settings, parameters, db, title):
         else:
             ax.set_ylabel("count")
         
-        plt.savefig(output_file)
+        plt.savefig(output_file, dpi=600)
     else:
         pass
 

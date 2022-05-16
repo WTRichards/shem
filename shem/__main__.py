@@ -145,6 +145,8 @@ def main():
     parser.add_argument("-m", "--mesh",         help="mesh file as stl",       default="mesh.stl")
     # Swap y and z - this software uses the convention that the sample is aligned along the xy plane rather than the xz plane
     parser.add_argument("-L", "--xz-convention", help="scans and meshes aligned along xz direction", action="store_true")
+    # Use the database
+    parser.add_argument("-D", "--enable-database", help="enable the ability to write to the database AND save outputs", action="store_true")
     
     # Either verbose or quiet, not both
     verbosity = parser.add_mutually_exclusive_group()
@@ -160,7 +162,6 @@ def main():
     parser_gen.add_argument("-n", "--n-rays", help="number of rays per batch", type=int, default=-1)
     parser_gen.add_argument("-b", "--batches", help="number of batches", type=int, default=-1)
     parser_gen.add_argument("-d", "--disable-write", help="disable the ability to write to the database", action="store_true")
-    parser_gen.add_argument("-D", "--enable-database", help="enable the ability to write to the database AND save outputs", action="store_true")
     parser_gen.set_defaults(func=run_simulation_default_wrapper)
     
     parser_ana = subparsers.add_parser('analyse', aliases=['ana'], help='analyse an image based on the settings and paramters template in the config file ')

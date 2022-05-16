@@ -105,14 +105,14 @@ sigma2 = 0.5
 
 delta = {
     "function" : shem.source.delta,
-    "strength" : 0.2,
+    "strength" : 0.1,
     "kwargs" : {},
 }
 
 
 uniform = {
     "function" : shem.source.uniform_cone,
-    "strength" : 0.2, 
+    "strength" : 0.01, 
     "kwargs": {
         #"theta_max" : np.radians(0.01), # Uniform cone polar angle 0.01 degrees
         "theta_max" : 0.01, # Uniform cone polar angle 0.01 radians
@@ -123,7 +123,7 @@ gaussian1 = {
     "function" : shem.source.gaussian,
     "strength" : 0.3, 
     "kwargs": {
-        "sigma" : np.radians(0.1)
+        "sigma" : 0.01
     },
 }
 
@@ -237,7 +237,7 @@ def my_specular(a, f, s, **kwargs):
 
 diffuse = {
     "function" : shem.scattering.diffuse_perfect,
-    "strength" : 0.5,
+    "strength" : 0.99,
     "kwargs"   : {
     },
 }
@@ -245,9 +245,9 @@ diffuse = {
 # Specular broadened by superposition with a diffuse distribution.
 specular = {
     "function" : shem.scattering.diffuse_specular_superposition,
-    "strength" : 0.5,
+    "strength" : 0.01,
     "kwargs"   : {
-        "r"    : 0.9 # Ratio of specular to diffuse superposed.
+        "r"    : 0.94 # Ratio of specular to diffuse superposed.
     },
 }
 
@@ -316,7 +316,7 @@ display = {
     "X-Y Signal (Image)" : {
     "type"    : "xy intensity",            # Type of the plot. Determines how the rest of the dictionary is parsed.
     "denoise" : False,                     # Apply a denoising filter
-    "flip"    : False,                     # Flip the image if plotting in x and y. This puts the image the right way up - see the camera obscura.
+    "flip"    : True,                      # Flip the image if plotting in x and y. This puts the image the right way up - see the camera obscura.
     "figure"  : False,                     # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
     "indices" : indices[0],                # Which subset of the indices we have simulated we will be plotting.
     "x"       :  x,                        # The x coordinate. Despite the name, an "xy intensity" plot can track any coordinate index
@@ -518,7 +518,7 @@ template_simple_scattering = {
             "Broadened Specular Scattering" : {
                 "strength" : (0, 1),
                 "kwargs"   : {
-                    "r" : (0.5, 1)
+                    "r" : (0.9, 1)
                 },
             },
         },
@@ -649,7 +649,7 @@ settings = {
     "meta" : {
         "override_hashes"     : True,            # Override the mesh and config hashes stored in the database.
         "max_batch_size_init" : 64000,           # A starting point so that the algorithm needs less time to calibrate how much memory it can use. If this is too large the program may just crash.
-        "max_scans"           : 256,             # The maximum number of times to scan over the coordinates.
+        "max_scans"           : 1024,            # The maximum number of times to scan over the coordinates.
         "max_scatters"        : 8,               # The maximum number of times rays can scatter off the surface. Since this is stored as an 8 bit integer it must be between 0 and 255 (inclusive). For most purposes, 255 is effectively unlimited.
         "coordinates"         : coordinates,     # Scanning coordinates to be used.
         # The configuration of the solver which tries to find the optimum values given the specified template.
@@ -659,9 +659,9 @@ settings = {
             #"template" : template_simple_scattering,
             # We provide a function as a method to solve for the original parameters.
             # In this case, we are interested in the ratios of the scattering distributions as well as the reciprocal lattice vectors.
-            #"template" : template_simple_scattering,
-            "template" : template_reciprocal_lattice,
-            "threshold": 0.01, # Threshold to end the optimisation
+            "template" : template_simple_scattering,
+            #"template" : template_reciprocal_lattice,
+            "threshold": 0.1, # Threshold to end the optimisation
              # Which subset of the indices we have simulated we will be comparing the data to.
             "indices"  : indices[0],
             # The properties of the image we will be scanning relative to this program's xy intensity output. We will assume the y axis has been flipped.

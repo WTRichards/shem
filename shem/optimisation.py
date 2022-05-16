@@ -107,7 +107,7 @@ def calc_chi2(image, test, processing=lambda data: data):
     '''
     Calculate the sum of the squared differences between the image and the result, then divide by the expected value.
     '''
-    return np.nan_to_num( (processing(image) - processing(test))**2 / processing(image), nan=0, posinf=0, neginf=0 ).sum()
+    return np.nan_to_num( (processing(image) - processing(test))**2 / processing(test), nan=0, posinf=0, neginf=0 ).sum()
 
 def run_analysis(args):
     '''
@@ -123,7 +123,7 @@ def run_analysis(args):
     # Get the relevant coordinate indices
     indices = settings["meta"]["solver"]["indices"]
     # The threshold scales with the image size
-    threshold = settings["meta"]["solver"]["threshold"] * image.size
+    threshold = settings["meta"]["solver"]["threshold"]
     
     # Load the surface object into memory
     surface = shem.surface.load_surface(args, settings)
@@ -141,8 +141,8 @@ def run_analysis(args):
 
         # Apply the new parameters to the settings
         settings = shem.configuration.set_setting_values(settings, parameters)
-        print(parameters)
-        shem.configuration.get_parameters(settings)
+        #print(parameters)
+        #shem.configuration.get_parameters(settings)
 
         # Ensure that the settings are in the bounds specified.
         assert shem.configuration.check_settings_in_bounds(settings) is True
@@ -157,8 +157,7 @@ def run_analysis(args):
         simulation_result = np.reshape(db_tuple[2][indices], image.shape)
 
         # Calculate the Chi2 value for denoised images
-        chi2 = calc_chi2(image, simulation_result, processing=denoise)
-
+        chi2 = calc_chi2(image, simulation_result) / image.size
 
         # Print the parameters used and the chi2 value.
         if not args.quiet:
@@ -187,7 +186,7 @@ def run_analysis(args):
 
     # Minimise the chi2 between the result and image, subject to the bounds specified, starting in the middle of them with a particular tolerance for termination.
     # See SciPy documentation for more details.
-    result = scipy.optimize.minimize(simulation_wrapper, x0, method='trust-constr', options={'verbose': 1}, bounds=bounds)
+    result = scipy.optimize.minimize(simulation_wrapper, x0, method='trust-constr', options={'verbose': 1}, bounds=bounds, tol=threshold)
 
     # Output the result of the minimisation
     print(result)
