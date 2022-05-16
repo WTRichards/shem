@@ -284,7 +284,7 @@ diffraction = {
 scattering_function = {
     "Perfect Diffuse Scattering"    : diffuse,
     "Broadened Specular Scattering" : specular,
-    "Simple 2D Diffraction"         : diffraction,
+    #"Simple 2D Diffraction"         : diffraction,
 }
 
 ################
@@ -517,9 +517,9 @@ template_simple_scattering = {
             },
             "Broadened Specular Scattering" : {
                 "strength" : (0, 1),
-                "kwargs"   : {
-                    "r" : (0.9, 1)
-                },
+                #"kwargs"   : {
+                #    "r" : (0.9, 1)
+                #},
             },
         },
     },

@@ -109,6 +109,12 @@ def calc_chi2(image, test, processing=lambda data: data):
     '''
     return np.nan_to_num( (processing(image) - processing(test))**2 / processing(test), nan=0, posinf=0, neginf=0 ).sum()
 
+def calc_mse(image, test, processing=lambda data: data):
+    '''
+    Calculate the sum of the squared differences between the image and the result, then divide by the expected value.
+    '''
+    return np.nan_to_num( (processing(image) - processing(test))**2, nan=0, posinf=0, neginf=0 ).sum()
+
 def run_analysis(args):
     '''
     Analyse a provided image to determine the parameters used to create it.
@@ -119,6 +125,7 @@ def run_analysis(args):
 
     # Load the image using the settings for the solver.
     image = shem.display.load_intensity_image(os.path.join(args.work_dir, args.image), settings)
+    image /= image.max()
 
     # Get the relevant coordinate indices
     indices = settings["meta"]["solver"]["indices"]
@@ -136,12 +143,19 @@ def run_analysis(args):
     # Parameters table in the database
     params_table = db.root.metadata.params
 
+    # Specify the bounds - we could also specify constraints here...
+    bounds = shem.configuration.get_parameters_bounds(settings)
+
     def simulation_wrapper(parameters):
         settings = shem.configuration.get_settings(args)
 
+        # Loop parameters back into the allowed region
+        for i, parameter in enumerate(parameters):
+            if parameter < bounds[i][0] or parameter > bounds[i][1]:
+                parameters[i] = (parameter - bounds[i][0]) % (bounds[i][1] - bounds[i][0]) + bounds[i][0]
+
         # Apply the new parameters to the settings
         settings = shem.configuration.set_setting_values(settings, parameters)
-        #print(parameters)
         #shem.configuration.get_parameters(settings)
 
         # Ensure that the settings are in the bounds specified.
@@ -155,30 +169,29 @@ def run_analysis(args):
 
         # Get the result from the database
         simulation_result = np.reshape(db_tuple[2][indices], image.shape)
+        simulation_result = simulation_result / simulation_result.max()
 
         # Calculate the Chi2 value for denoised images
         chi2 = calc_chi2(image, simulation_result) / image.size
 
         # Print the parameters used and the chi2 value.
         if not args.quiet:
-            print(settings["scattering"])
-            print("Chi2 value = " + str(chi2) + "\nParameters:\n" + shem.configuration.get_parameters(settings))
+            print("Chi2 value = " + str(chi2) + "\nParameters:\n" + str(parameters))
 
         # Append the results to the database
         p = params_table.row
         p['hashed'] = hash_obj(parameters)
         p['values'] = parameters
-        p['chi2']    = chi2
+        p['chi2']   = chi2
         p.append()
         params_table.flush()
 
         return chi2
 
-    # Specify the bounds - we could also specify constraints here...
-    bounds = shem.configuration.get_parameters_bounds(settings)
-
     # Start in the center of the bounds.
     x0 = np.array([ (bound[0] + bound[1])/2 for bound in bounds ])
+    # Override for now.
+    #x0 = np.array([0.9, 0.1, 0.95])
 
     # Seed the RNG
     np.random.seed(0)
@@ -186,7 +199,7 @@ def run_analysis(args):
 
     # Minimise the chi2 between the result and image, subject to the bounds specified, starting in the middle of them with a particular tolerance for termination.
     # See SciPy documentation for more details.
-    result = scipy.optimize.minimize(simulation_wrapper, x0, method='trust-constr', options={'verbose': 1}, bounds=bounds, tol=threshold)
+    result = scipy.optimize.basinhopping(simulation_wrapper, x0)
 
     # Output the result of the minimisation
     print(result)
