@@ -47,14 +47,17 @@ def load_config(args):
     conf = SourceFileLoader("conf", config_file).load_module()
     return conf
 
-def get_settings(args, settings=None, defaults=None):
+def get_settings(args=None, settings=None, defaults=None):
     '''
     Gets the true value of settings from the arguments provided, applying default values
     '''
     # Begin the recursion
     if settings is None and defaults is None:
         # Load the settings and defaults.
-        conf = load_config(args)
+        if args is None:
+            conf = shem.default_config
+        else:
+            conf = load_config(args)
         settings = conf.settings
         defaults = shem.default_config.defaults
         get_settings(args, settings, defaults)

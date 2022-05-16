@@ -10,10 +10,14 @@
 #python -m shem -q -m mesh.stl mesh -w 2.0 -T 0.5 -t "flat"
 
 # Generate a mesh comprising several trenches
-#python -m shem -m mesh.stl mesh -w 2.0 -T 0.5 -W 0.8 -H 0.8 -D 0.2 0.4 0.6 0.8 -t "trenches"
+#python -m shem -q -m mesh.stl mesh -w 2.0 -T 0.5 -W 0.8 -H 0.8 -D 0.2 0.4 0.6 0.8 -t "trenches"
 
 # Generate a mesh comprising a flat platform and sphere
 python -m shem -q -m mesh.stl mesh -w 2.0 -T 0.5 -r 0.4 -I 3 -t "sphere"
+
+# Characterise the mesh based on the average solid angle of the rest of the surface visible from any point on the surface.
+# The -c 10 excludes the triangles representing the bottom and sides of the sample
+#python -m shem -m mesh.stl -g characterise -b 128 -n 10000 -c 10
 
 # For more information about the mesh subcommand
 # python -m shem mesh -h

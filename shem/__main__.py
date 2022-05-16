@@ -157,6 +157,10 @@ def main():
     parser_gen = subparsers.add_parser('generate', aliases=['gen'], help='create an image using the settings in the config file')
     # Specify a config file to run the simulation and help with analysis
     parser_gen.add_argument("config", help="config file in Python", default="config.py")
+    parser_gen.add_argument("-n", "--n-rays", help="number of rays per batch", type=int, default=-1)
+    parser_gen.add_argument("-b", "--batches", help="number of batches", type=int, default=-1)
+    parser_gen.add_argument("-d", "--disable-write", help="disable the ability to write to the database", action="store_true")
+    parser_gen.add_argument("-D", "--enable-database", help="enable the ability to write to the database AND save outputs", action="store_true")
     parser_gen.set_defaults(func=run_simulation_default_wrapper)
     
     parser_ana = subparsers.add_parser('analyse', aliases=['ana'], help='analyse an image based on the settings and paramters template in the config file ')
@@ -178,6 +182,13 @@ def main():
     # Mesh type
     parser_mesh.add_argument("-t", "--type", help="mesh type", default="flat")
     parser_mesh.set_defaults(func=mesh)
+    
+    parser_char = subparsers.add_parser('characterise', aliases=['char'], help='characterise a mesh by calculating the average solid angle visible from each point on its surface')
+    parser_char.add_argument("-b", "--batches", help="number of batches", type=int, default=8)
+    parser_char.add_argument("-n", "--n-rays", help="number of rays per batch", type=int, default=10e4)
+    parser_char.add_argument("-c", "--cull", help="cull these faces from either the start (+) or end (-)", type=int, default=0)
+    # Specify a config file to run the simulation and help with analysis
+    parser_char.set_defaults(func=shem.simulation.characterise)
 
     args = parser.parse_args()
     args.func(args)

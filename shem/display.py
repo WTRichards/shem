@@ -341,7 +341,9 @@ def output(args, settings, parameters):
     tqdm_iterator = tqdm.tqdm(settings["display"].keys(), leave=True)
     for title in tqdm_iterator:
         tqdm_iterator.set_description("generating {}".format(title))
-        display_functions[settings["display"][title]["type"]](args, settings, parameters, db, title)
+        # Limit the plots we can produce without the database.
+        if args.enable_database or (settings["display"][title]["type"] == "xy intensity" and settings["display"][title]["z"] == "signal"):
+            display_functions[settings["display"][title]["type"]](args, settings, parameters, db, title)
     
     db.close()
 

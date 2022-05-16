@@ -46,7 +46,7 @@ def convert_triangles_to_mesh(mesh_triangles):
     '''
     Accepts an N x 3 x 3 numpy array and returns the corresponding mesh object.
     '''
-    mesh = trimesh.Trimesh(use_embree=True, **trimesh.triangles.to_kwargs(mesh_triangles))
+    mesh = trimesh.Trimesh(use_embree=False, **trimesh.triangles.to_kwargs(mesh_triangles))
     return mesh
 
 def create_flat_triangles(w, h):

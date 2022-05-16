@@ -159,7 +159,7 @@ While in reality the sample is moved about on a stage it is computationally more
 
 # A scan over the x and y indices at (theta, phi) = (0, 0)
 cart_steps = 256
-width = 2.56
+width = 2.0
 height = width
 x = np.linspace( -width/2,  +width/2, cart_steps)
 y = np.linspace( -width/2,  +width/2, cart_steps)
@@ -307,12 +307,24 @@ display = {
     "figure"  : True,                      # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
     "indices" : indices[0],                # Which subset of the indices we have simulated we will be plotting.
     "x"       :  x,                        # The x coordinate. Despite the name, an "xy intensity" plot can track any coordinate index
-    "x_name"  : "x / au",                  # The x axis title. We can use this to e.g. include units
+    "x_name"  : "x / mm",                  # The x axis title. We can use this to e.g. include units
     "y"       :  y,                        # Identical to the x axis
-    "y_name"  : "y / au",                  # Identical to the x axis
+    "y_name"  : "y / mm",                  # Identical to the x axis
     "z"       : "signal",                  # We specify which field from the many tables we wish to plot. Here, we will just look at the signal but we could look at other properties like n_scat.
     },
-
+    # The signal you would expect from an xy scan.
+    "X-Y Signal (Image)" : {
+    "type"    : "xy intensity",            # Type of the plot. Determines how the rest of the dictionary is parsed.
+    "denoise" : False,                     # Apply a denoising filter
+    "flip"    : False,                     # Flip the image if plotting in x and y. This puts the image the right way up - see the camera obscura.
+    "figure"  : False,                     # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
+    "indices" : indices[0],                # Which subset of the indices we have simulated we will be plotting.
+    "x"       :  x,                        # The x coordinate. Despite the name, an "xy intensity" plot can track any coordinate index
+    "x_name"  : "x / mm",                  # The x axis title. We can use this to e.g. include units
+    "y"       :  y,                        # Identical to the x axis
+    "y_name"  : "y / mm",                  # Identical to the x axis
+    "z"       : "signal",                  # We specify which field from the many tables we wish to plot. Here, we will just look at the signal but we could look at other properties like n_scat.
+    },
     # The signal you would expect from an xy scan with a denoise filter applied.
     "X-Y Signal (Denoised)" : {
     "type"    : "xy intensity",            # Type of the plot. Determines how the rest of the dictionary is parsed.
@@ -321,9 +333,9 @@ display = {
     "figure"  : True,                      # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
     "indices" : indices[0],                # Which subset of the indices we have simulated we will be plotting.
     "x"       :  x,                        # The x coordinate. Despite the name, an "xy intensity" plot can track any coordinate index
-    "x_name"  : "x / au",                  # The x axis title. We can use this to e.g. include units
+    "x_name"  : "x / mm",                  # The x axis title. We can use this to e.g. include units
     "y"       :  y,                        # Identical to the x axis
-    "y_name"  : "y / au",                  # Identical to the x axis
+    "y_name"  : "y / mm",                  # Identical to the x axis
     "z"       : "signal",                  # We specify which field from the many tables we wish to plot. Here, we will just look at the signal but we could look at other properties like n_scat.
     },
     # The average number of times rays are scattered at each coordinate index.
@@ -334,9 +346,9 @@ display = {
     # "stdout"  : True,                     # Output the values scaled to 0, 1 or 2 and scaled down to a 32 x 32 grid to stdout. Defaults to False.
     "indices" : indices[0],               # Which subset of the indices we have simulated we will be plotting.
     "x"       :  x,                       # The x coordinate. Despite the name, an "xy intensity" plot can track any coordinate index
-    "x_name"  : "x / au",                 # The x axis title. We can use this to e.g. include units
+    "x_name"  : "x / mm",                 # The x axis title. We can use this to e.g. include units
     "y"       :  y,                       # Identical to the x axis
-    "y_name"  : "y / au",                 # Identical to the x axis
+    "y_name"  : "y / mm",                 # Identical to the x axis
     "z"       : "average number of times scattered",
     },
     # The average number of times rays are scattered at each coordinate index.
@@ -346,9 +358,9 @@ display = {
     "figure"  : True,                     # Output a plot rather than an image. Useful if the images will be used for more plots. Defaults to False.
     "indices" : indices[0],               # Which subset of the indices we have simulated we will be plotting.
     "x"       :  x,                       # The x coordinate. Despite the name, an "xy intensity" plot can track any coordinate index
-    "x_name"  : "x / au",                 # The x axis title. We can use this to e.g. include units
+    "x_name"  : "x / mm",                 # The x axis title. We can use this to e.g. include units
     "y"       :  y,                       # Identical to the x axis
-    "y_name"  : "y / au",                 # Identical to the x axis
+    "y_name"  : "y / mm",                 # Identical to the x axis
     "z"       : "average number of times scattered (detected)",
     },
     # The number of times rays are multiple scattered.
@@ -686,7 +698,7 @@ settings = {
     },
     # Parameters which affect how rays are detected. Pretty barebones for now. It would be nice if we could specify the detector shape, too...
     "detector" : {
-        "radius"   : 0.01, # The radius of the detector aperture.
+        "radius"   : 0.1, # The radius of the detector aperture.
         "location" : shem.geometry.polar2cart([2.0, 45.0, 90.0], radians=False),  # The location of the center of the detector relative to the origin.
     },
     # Parameters which describe the source

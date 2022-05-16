@@ -1,7 +1,7 @@
 import os, sys
 import time
 
-import trimesh
+#import trimesh
 import tqdm
 
 import numpy as np
@@ -25,7 +25,7 @@ def trace_rays(
         surface,               # Surface object
         rt_table = None,       # Table in which to save the ray tracing results
         max_batch_size = 1024, # Maximum number of rays to trace per batch.
-        n_batches = 8,         # Number of batches for testing
+        n_batches = None,         # Number of batches for testing
         ):
     '''
     Trace the rays which scatter off the sample using the given settings and store the result in a database.
@@ -62,7 +62,8 @@ def trace_rays(
         rays_traced = rt_table.nrows
 
         # Calculate how many batches will we need to run through the entire table.
-        n_batches = (max_rays_traced - rays_traced) // max_batch_size
+        if n_batches is None:
+            n_batches = (max_rays_traced - rays_traced) // max_batch_size
 
         # Calculate the size of the final batch.
         last_batch_size = (max_rays_traced - rays_traced) % max_batch_size
@@ -163,6 +164,114 @@ def trace_rays(
         rays_traced += batch_range[1] - batch_range[0]
 
     return
+
+
+def trace_rays_nodb(
+        args,                  # Command line arguments
+        settings,              # Simulation settings
+        surface,               # Surface object
+        sig_arr       ,        # Array in which to save the signal at each coordinate
+        max_batch_size = 1024, # Maximum number of rays to trace per batch.
+        ):
+    '''
+    Trace the rays which scatter off the sample using the given settings and DO NOT store the result in a database.
+    '''
+    
+    xp = get_xp(args)
+
+    # Get variables from settings for convenience and move them to the GPU, if necessary
+    coordinates         = xp.array(settings[      "meta"][ "coordinates"])
+    max_scans           =          settings[      "meta"][   "max_scans"]
+    source_location     = xp.array(settings[    "source"][    "location"])
+    source_function     =          settings[    "source"][    "function"]
+    scattering_function =          settings["scattering"][    "function"]
+    max_scatters        =          settings[      "meta"]["max_scatters"]
+
+    # Calculate the maximum number of rays we are allowed to trace.
+    max_rays_traced = max_scans * coordinates.shape[1]
+
+    # Set up the signal array on the GPU.
+    signal = xp.zeros(sig_arr.nrows, dtype=xp.uint16)
+
+    # Check if we have already completed the signal calculation procedure on this table.
+    # There is no easy way to tell from the table itself, so we use an attribute.
+    if sig_arr.attrs.complete:
+        print("Signal summation array: " + sig_arr.name + " is complete. Continuing...")
+        return
+    else:
+        # Erase the signal table.
+        sig_arr[:] = 0
+
+    name = sig_arr.name
+
+    # Limit the max batch size so that two coordinates aren't imaged at once.
+    if max_batch_size > coordinates.shape[1]:
+        max_batch_size = coordinates.shape[1]
+
+    # Number of batches we need to process
+    n_batches = max_rays_traced // max_batch_size
+
+    # Calculate the size of the final batch.
+    last_batch_size = max_rays_traced % max_batch_size
+
+    # Seed the random data. We do this every time this function is called to ensure consistency every time this program is run.
+    np.random.seed(0)
+    xp.random.seed(0)
+
+    # Allocate memory for the initial rays.
+    # We do this once at the start for performance.
+    rays_i = xp.empty((2, max_batch_size, 3), dtype=xp.float32)
+
+    # Track when we start.
+    start_time = time.time()
+
+    #############
+    # Main Loop #
+    #############
+
+    # Scatter each ray batch
+    rays_traced = 0
+    tqdm_iterator = tqdm.trange(n_batches+1, leave=True)
+    for batch in tqdm_iterator:
+        tqdm_iterator.set_description("{} : {:,} total rays traced, {:,} scans complete".format(name, rays_traced, rays_traced // coordinates.shape[1]))
+        # Check whether we are on the final batch.
+        if batch == n_batches:
+            # Exit the loop if there is no final batch
+            if last_batch_size == 0:
+                continue
+            batch_range = [rays_traced, rays_traced+last_batch_size]
+            # Reallocate memory
+            rays_i = xp.empty((2, last_batch_size, 3), dtype=xp.float32)
+        else:
+            batch_range = [rays_traced, rays_traced+max_batch_size]
+
+        # Determine the coordinate indices of the rays we will be tracing.
+        coordinate_indices = xp.arange(*batch_range) % coordinates.shape[1]
+        
+        # Set the initial values of the rays and get the polar coordinate displacements from a perfect source.
+        #a_polar_i = set_initial_rays(rays_i, coordinate_indices)
+        a_polar_i = shem.source.get_source_rays(rays_i, source_location, source_function, coordinates, coordinate_indices)
+
+        # Scatter the rays off the surface
+        rays_f, n_scat = shem.scattering.scatter(rays_i, surface, scattering_function, max_scatters)
+
+        # Determine which rays are detected. We need to add on the starting index of the batch.
+        is_detected = shem.detection.detect(rays_f, settings, coordinate_indices)
+
+        # Add detected rays to the signal
+        signal[coordinate_indices] += is_detected
+
+        # Keep track of the number of rays traced.
+        rays_traced += batch_range[1] - batch_range[0]
+
+    # Save the signal
+    signal = signal.get()
+    sig_arr[:] = signal
+
+    # The array is complete
+    sig_arr.attrs.complete = True
+
+    return signal
 
 def detect_rays(
         args,          # Command line arguments
@@ -306,7 +415,7 @@ def sum_detected_rays(
 
     # The array is complete
     sig_arr.attrs.complete = True
-    return
+    return signal
 
 
 #######################
@@ -326,14 +435,18 @@ def run_simulation(args, settings, db_tuple, surface, max_batch_sizes):
     # Apply any modifications to the surface
     surface = shem.surface.modify_surface(surface, settings)
 
-    # Trace and scatter the rays off the surface
-    trace_rays(args, settings, surface, rt_table, max_batch_size_rt)
+    if args.enable_database:
+        # Trace and scatter the rays off the surface
+        trace_rays(args, settings, surface, rt_table, max_batch_size_rt)
 
-    # Detect the rays which were scattered.
-    detect_rays(args, settings, rt_table, dt_arr, max_batch_size_dt)
+        # Detect the rays which were scattered.
+        detect_rays(args, settings, rt_table, dt_arr, max_batch_size_dt)
 
-    # Calculate the signal from each of the detected rays.
-    sum_detected_rays(args, settings, rt_table, dt_arr, sig_arr, max_batch_size_sig)
+        # Calculate the signal from each of the detected rays.
+        sum_detected_rays(args, settings, rt_table, dt_arr, sig_arr, max_batch_size_sig)
+    else:
+        # Run the simulation without the database - you will be limited in the figures you can produce but you will be faster
+        signal = trace_rays_nodb(args, settings, surface, sig_arr, max_batch_size_rt)
     
     return
 
@@ -351,7 +464,10 @@ def run_simulation_default(args):
     surface = shem.surface.load_surface(args, settings)
 
     # Calculate the maximum number of rays we can process on the GPU for each step.
-    max_batch_sizes = shem.optimisation.calc_max_batch_sizes(args, settings, surface)
+    if args.n_rays == -1:
+        max_batch_sizes = shem.optimisation.calc_max_batch_sizes(args, settings, surface)
+    else:
+        max_batch_sizes = (args.n_rays, args.n_rays, args.n_rays)
 
     # Open the database file.
     db = shem.database.open_database_file(args, mode="r+")
@@ -369,4 +485,88 @@ def run_simulation_default(args):
     shem.display.output(args, settings, parameters)
 
     return
+
+def characterise(args):
+    '''
+    Characterise a particular mesh by the solid angle occupied by the surface at each point.
+    '''
+    xp = get_xp(args)
+
+    # Load the surface object into memory, culling irrelevant faces
+    surface = shem.surface.load_surface(args, cull=args.cull)
+
+    # Display the culled surface
+    if not args.quiet:
+        # TODO: Get the display to work here without segfaulting
+        pass
+        """
+        print("Displaying culled surface...")
+        # Generate the mesh object from the raw triangles.
+        if args.use_gpu:
+            triangles = surface.triangles.get()
+        else:
+            triangles = surface.triangles
+
+        # Create the mesh object.
+        mesh = shem.mesh.convert_triangles_to_mesh(triangles.copy())
+
+        # Inspect the mesh before using it. This lead to a segmentation fault and I have no idea why but the mesh saves regardless. Maybe it's because I am using X tunnelling?
+        mesh.show()
+
+        print("Surface inspection complete.")
+        """
+
+    
+    np.random.seed(0)
+    cp.random.seed(0)
+    i=0
+    
+    # Probability of choosing each face
+    p_face = surface.face_areas() / surface.face_areas().sum()
+
+    # Probability of a collision for each batch
+    p_collision = xp.zeros(args.batches)
+
+    # Iterate over each batch
+    tqdm_iterator = tqdm.trange(args.batches, leave=True)
+    for batch in tqdm_iterator:
+        # Pick a random face for each ray, weighted by their area.
+        faces = xp.random.choice(surface.faces.shape[0], size=args.n_rays, replace=True, p=p_face)
+
+        # Get the normals for each face
+        n = surface.normals[faces]
+
+        # Randomise the direction of each ray, subject to the constraint that they must point away from the surface
+        #a = xp.array([[0.0, 0.0, -1.0], [0.0, 0.0, -1.0]])
+        a = shem.geometry.vector_normalise(xp.random.randn(*n.shape))
+        # If the ray is going into the surface, flip it so it goes out of it.
+        a *= xp.expand_dims(xp.sign(shem.geometry.vector_dot(a, n)), -1)
+
+        # Pick a random coordinate on that face for each ray to originate from.
+        uniform_dist = xp.random.rand(args.n_rays, 2)
+        # Flip so the point is in the triangle
+        uniform_dist = xp.expand_dims(xp.where(xp.expand_dims(uniform_dist.sum(-1) < 1, -1), uniform_dist, 1-uniform_dist), -1)
+        # We only need 2 edges
+        e1 = surface.edges[:, 0, :][faces]
+        e2 = surface.edges[:, 1, :][faces]
+        # Choose the starting position, plus a small offset since starting exactly on the surface could cause problems
+        b = e1*uniform_dist[:, 0] + e2*uniform_dist[:, 1] + DELTA*n
+
+        # Stack a and b
+        rays = xp.stack((a, b))
+
+        # Perform collision detection with the surface
+        _, collisions, _ = shem.detection.detect_surface_collisions(rays, surface)
+
+        # Add the number of collisions to the total
+        p_collision[i] = collisions.sum() / args.n_rays
+        i += 1
+
+    print(p_collision)
+    print("Number of Faces: " + str(surface.faces.shape[0]))
+    print("Mean Solid Angle / 2 pi: {:.4f}\nStandard Deviation: {:.4f}\nN = {:}".format(p_collision.mean(), p_collision.std(), args.batches))
+
+    return
+
+
 

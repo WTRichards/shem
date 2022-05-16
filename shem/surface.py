@@ -118,7 +118,7 @@ class Surface:
         return cross(self.edges[..., 0, :], self.edges[..., 1, :]) / 2
 
     def face_areas(self):
-        return norm(self.face_vector_area(), axis=-1)
+        return norm(self.face_vector_areas(), axis=-1)
 
     def _edges(self):
         return self.xp.array([
@@ -139,7 +139,7 @@ def modify_surface(surface, settings):
 
     return surface
 
-def load_surface(args, settings):
+def load_surface(args, settings=None, cull=0):
     '''
     Load the mesh file into a surface object.
     '''
@@ -151,15 +151,22 @@ def load_surface(args, settings):
     except:
         mesh = trimesh.load_mesh(mesh_file)
     
+    # Cull the specified number of faces
+    if cull < 0:
+        culled_faces = mesh.faces[:cull]
+    else:
+        culled_faces = mesh.faces[cull:]
+
     # Create the surface object
     surface = shem.surface.Surface(vertices = mesh.vertices,
-                                      faces = mesh.faces,
+                                      faces = culled_faces,
                                          xp = get_xp(args))
      
-    # Apply coordinate shifts to the surface. It doesn't make sense to put this in modify_surface since tweaking the shift as a parameter means the surface is shifted repeatedly (not good).
-    surface.shift(settings["sample"]["shift"])
+    if settings is not None:
+        # Apply coordinate shifts to the surface. It doesn't make sense to put this in modify_surface since tweaking the shift as a parameter means the surface is shifted repeatedly (not good).
+        surface.shift(settings["sample"]["shift"])
 
-    # Apply any necessary modifications
-    surface = modify_surface(surface, settings)
+        # Apply any necessary modifications
+        surface = modify_surface(surface, settings)
     
     return surface
